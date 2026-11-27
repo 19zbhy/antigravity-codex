@@ -284,7 +284,7 @@ if ($Mode -eq "doctor") {
     $skillText = Get-Content -LiteralPath $skillPath -Raw -Encoding UTF8
     if ($skillText -match "<USER_HOME>") {
       Write-Output "  [WARN] SKILL.md: still contains <USER_HOME> placeholder (run install.ps1)"
-    } elseif ($skillText -match "\(not synced yet\)") {
+    } elseif ($skillText -match "(?m)^- \(not synced yet\)\r?$") {
       Write-Output "  [WARN] SKILL.md: live options not synced yet (run sync-options)"
     } else {
       Write-Output "  [OK]   SKILL.md: installed and live options synced ($skillPath)"

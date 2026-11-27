@@ -442,7 +442,7 @@ if [[ "$MODE" == "doctor" ]]; then
   if [[ -f "$SKILL_MD_PATH" ]]; then
     if grep -q '<USER_HOME>' "$SKILL_MD_PATH"; then
       echo "  [WARN] SKILL.md: still contains <USER_HOME> placeholder (run install.sh)"
-    elif grep -q '(not synced yet)' "$SKILL_MD_PATH"; then
+    elif grep -Fxq -- '- (not synced yet)' "$SKILL_MD_PATH"; then
       echo "  [WARN] SKILL.md: live options not synced yet (run sync-options)"
     else
       echo "  [OK]   SKILL.md: installed and live options synced (${SKILL_MD_PATH})"
