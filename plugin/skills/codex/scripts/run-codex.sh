@@ -15,9 +15,12 @@ usage() {
 Usage:
   run-codex.sh list-options
   run-codex.sh sync-options [skill_md_path]
+  run-codex.sh init-shared   <workspace_dir> [--exclude-state]
+  run-codex.sh list-sessions <workspace_dir> [--limit <N>]
   run-codex.sh execute <workspace_dir> <plan_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--worktree] [--no-isolate] [--verbose]
   run-codex.sh review  <workspace_dir> <spec_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate] [--verbose]
   run-codex.sh resume  <workspace_dir> <fix_file>  [output_last_message_file] [--session <id> | --last] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate] [--verbose]
+  run-codex.sh fork    <workspace_dir> <plan_file> [output_last_message_file] [--session <id>] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate] [--verbose]
 
 Environment variables (overridden by CLI flags):
   CODEX_MODEL       Override model name (defaults to top-level ~/.codex/config.toml)
@@ -273,6 +276,192 @@ fi
 
 if [[ "$MODE" == "sync-options" ]]; then
   sync_options_into_skill "${1:-$SKILL_MD_PATH}"
+  exit 0
+fi
+
+if [[ "$MODE" == "init-shared" ]]; then
+  [[ $# -ge 1 ]] || usage
+  TARGET_WS="$1"
+  shift
+  EXCLUDE_STATE="0"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --exclude-state) EXCLUDE_STATE="1"; shift ;;
+      *) echo "ERROR: Unknown option '$1' for init-shared" >&2; usage ;;
+    esac
+  done
+  if [[ ! -d "$TARGET_WS" ]]; then
+    echo "ERROR: Workspace directory does not exist: $TARGET_WS" >&2
+    exit 2
+  fi
+  TARGET_WS="$(cd "$TARGET_WS" && pwd)"
+  mkdir -p "${TARGET_WS}/.agents/skills" "${TARGET_WS}/.agents/hooks"
+
+  if [[ ! -f "${TARGET_WS}/AGENTS.md" ]]; then
+    cat > "${TARGET_WS}/AGENTS.md" <<'EOF'
+# Project Agent Conventions (Shared by Codex & Antigravity)
+
+- **Hot State Handoff**: Read `.agents/state.md` at the start of a session to see recent work from other agents, and update it concisely (< 50 lines) after meaningful code changes.
+- **Long-Term Memory**: If a shared Memory MCP (such as `basic-memory`) is available, record lasting architecture decisions, environment caveats, and design trade-offs there.
+- **Shared Project Skills**: Place project-specific skills under `.agents/skills/<name>/SKILL.md` so both Codex and Antigravity discover them natively.
+EOF
+    echo "  [CREATED] ${TARGET_WS}/AGENTS.md"
+  else
+    echo "  [KEPT]    ${TARGET_WS}/AGENTS.md (already exists)"
+  fi
+
+  if [[ ! -f "${TARGET_WS}/.agents/state.md" ]]; then
+    cat > "${TARGET_WS}/.agents/state.md" <<'EOF'
+# Shared Workspace State
+
+- **Current Goal**: (describe active milestone or task)
+- **Last Updated By**: (Codex / Antigravity / /codex)
+- **Recent Changes**:
+  - None recorded yet.
+- **Known Issues / Guardrails**:
+  - None recorded yet.
+- **Next Steps**:
+  - None recorded yet.
+EOF
+    echo "  [CREATED] ${TARGET_WS}/.agents/state.md"
+  else
+    echo "  [KEPT]    ${TARGET_WS}/.agents/state.md (already exists)"
+  fi
+
+  HOOK_SH="${TARGET_WS}/.agents/hooks/session-context.sh"
+  if [[ ! -f "$HOOK_SH" ]]; then
+    cat > "$HOOK_SH" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$ROOT"
+echo "=== Shared Workspace Context ==="
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "-- git status --short --"
+  git status --short || true
+  echo "-- recent commits --"
+  git log -n 5 --oneline 2>/dev/null || true
+fi
+if [[ -f "${ROOT}/.agents/state.md" ]]; then
+  echo "-- .agents/state.md --"
+  head -n 60 "${ROOT}/.agents/state.md"
+fi
+EOF
+    chmod +x "$HOOK_SH"
+    echo "  [CREATED] ${HOOK_SH}"
+  else
+    echo "  [KEPT]    ${HOOK_SH} (already exists)"
+  fi
+
+  HOOKS_JSON="${TARGET_WS}/.agents/hooks.json"
+  if [[ ! -f "$HOOKS_JSON" ]]; then
+    cat > "$HOOKS_JSON" <<'EOF'
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .agents/hooks/session-context.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+    echo "  [CREATED] ${HOOKS_JSON}"
+  else
+    echo "  [KEPT]    ${HOOKS_JSON} (already exists)"
+  fi
+
+  if [[ "$EXCLUDE_STATE" == "1" ]]; then
+    if git -C "$TARGET_WS" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      GIT_DIR_PATH="$(git -C "$TARGET_WS" rev-parse --git-dir)"
+      if [[ "$GIT_DIR_PATH" != /* ]]; then
+        GIT_DIR_PATH="${TARGET_WS}/${GIT_DIR_PATH}"
+      fi
+      EXCLUDE_FILE="${GIT_DIR_PATH}/info/exclude"
+      mkdir -p "$(dirname "$EXCLUDE_FILE")"
+      touch "$EXCLUDE_FILE"
+      if ! grep -Fxq ".agents/state.md" "$EXCLUDE_FILE"; then
+        printf '\n.agents/state.md\n' >> "$EXCLUDE_FILE"
+        echo "  [UPDATED] Added .agents/state.md to ${EXCLUDE_FILE}"
+      else
+        echo "  [KEPT]    .agents/state.md already in ${EXCLUDE_FILE}"
+      fi
+    else
+      echo "  [WARN]    --exclude-state skipped: not a Git repository." >&2
+    fi
+  fi
+  echo "==> Shared workspace initialized: ${TARGET_WS}"
+  exit 0
+fi
+
+if [[ "$MODE" == "list-sessions" ]]; then
+  [[ $# -ge 1 ]] || usage
+  TARGET_WS="$1"
+  shift
+  LIMIT="10"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --limit)
+        [[ $# -ge 2 ]] || { echo "ERROR: --limit requires a positive integer" >&2; exit 2; }
+        LIMIT="$2"
+        shift 2
+        ;;
+      *) echo "ERROR: Unknown option '$1' for list-sessions" >&2; usage ;;
+    esac
+  done
+  if ! [[ "$LIMIT" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ERROR: --limit must be a positive integer, got '$LIMIT'" >&2
+    exit 2
+  fi
+  if [[ ! -d "$TARGET_WS" ]]; then
+    echo "ERROR: Workspace directory does not exist: $TARGET_WS" >&2
+    exit 2
+  fi
+  TARGET_WS="$(cd "$TARGET_WS" && pwd -P)"
+  STATE_DB="${CODEX_DIR}/state_5.sqlite"
+  if [[ ! -f "$STATE_DB" ]]; then
+    echo "No Codex session database found at: $STATE_DB"
+    exit 0
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$STATE_DB" "$TARGET_WS" "$LIMIT" <<'PY'
+import datetime, os, sqlite3, sys
+db_path, cwd_target, limit = sys.argv[1], os.path.realpath(sys.argv[2]), int(sys.argv[3])
+conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+cur = conn.cursor()
+cur.execute(
+    """
+    SELECT id, updated_at, COALESCE(model, ''), COALESCE(NULLIF(title, ''), preview, '')
+    FROM threads
+    WHERE archived = 0 AND (cwd = ? OR rtrim(cwd, '/') = ?)
+    ORDER BY updated_at DESC
+    LIMIT ?
+    """,
+    (cwd_target, cwd_target.rstrip("/"), limit),
+)
+rows = cur.fetchall()
+conn.close()
+if not rows:
+    print(f"No active Codex sessions found for workspace: {cwd_target}")
+else:
+    for sid, ts, model, title in rows:
+        dt = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if isinstance(ts, (int, float)) and ts > 0 else str(ts)
+        clean_title = " ".join(str(title).split())[:80]
+        print(f"{sid} | {dt} | {model or 'default'} | {clean_title}")
+PY
+  elif command -v sqlite3 >/dev/null 2>&1; then
+    ESCAPED_WS="${TARGET_WS//\'/\'\'}"
+    sqlite3 -readonly -separator ' | ' "$STATE_DB" \
+      "SELECT id, datetime(updated_at, 'unixepoch', 'localtime'), COALESCE(model, 'default'), replace(replace(substr(COALESCE(NULLIF(title, ''), preview, ''), 1, 80), char(10), ' '), char(13), ' ') FROM threads WHERE archived = 0 AND rtrim(cwd, '/') = '${ESCAPED_WS%/}' ORDER BY updated_at DESC LIMIT ${LIMIT};"
+  else
+    echo "ERROR: Neither python3 nor sqlite3 is available to read $STATE_DB" >&2
+    exit 127
+  fi
   exit 0
 fi
 
@@ -642,8 +831,33 @@ case "$MODE" in
     fi
     ;;
 
+  fork)
+    if [[ -z "$SESSION_ID" ]] && [[ -f "$SESSION_FILE" ]]; then
+      SESSION_ID="$(head -n 1 "$SESSION_FILE" | tr -d '[:space:]' || true)"
+    fi
+    if [[ -z "$SESSION_ID" ]]; then
+      echo "ERROR: fork requires a source session ID (pass --session <id> or provide an output path with an existing .session_id file)." >&2
+      exit 2
+    fi
+    # Reset stale summary/events AFTER source session ID is validated
+    rm -f "$OUTPUT_FILE" "$EVENTS_FILE"
+    echo "==> [Codex Engineer] Forking Codex session '${SESSION_ID}' in: $WORKSPACE_DIR"
+    echo "==> [Codex Engineer] Fork prompt file: $INPUT_FILE"
+    run_codex_cmd codex exec \
+      "${APPROVAL_FLAGS[@]}" \
+      --color never \
+      fork \
+      ${JSON_FLAGS[@]+"${JSON_FLAGS[@]}"} \
+      ${ISOLATE_FLAGS[@]+"${ISOLATE_FLAGS[@]}"} \
+      ${OVERRIDE_FLAGS[@]+"${OVERRIDE_FLAGS[@]}"} \
+      ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
+      ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
+      "$SESSION_ID" \
+      - < "$INPUT_FILE"
+    ;;
+
   *)
-    echo "ERROR: Unknown subcommand '$MODE' (expected 'list-options', 'sync-options', 'execute', 'review', or 'resume')." >&2
+    echo "ERROR: Unknown subcommand '$MODE' (expected 'list-options', 'sync-options', 'init-shared', 'list-sessions', 'execute', 'review', 'resume', or 'fork')." >&2
     usage
     ;;
 esac

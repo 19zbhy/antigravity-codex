@@ -315,6 +315,62 @@ assert_not_contains "no <USER_HOME> placeholder left" "<USER_HOME>" "$(cat "$INS
 assert_contains "installer synced live model cache" "gpt-6.2-sol (GPT-6.2-Sol)" "$(cat "$INSTALLED_SKILL")"
 assert_contains "tracked repo SKILL.md template stayed clean" "(not synced yet)" "$(cat "${REPO_ROOT}/plugin/skills/codex/SKILL.md")"
 
+echo "=== Test 7: Shared workspace (init-shared, list-sessions, fork) ==="
+SHARED_WS="${TMP_ROOT}/shared_ws"
+mkdir -p "$SHARED_WS"
+(cd "$SHARED_WS" && git init -q)
+"$RUNNER" init-shared "$SHARED_WS" --exclude-state >/dev/null
+assert_eq "init-shared created AGENTS.md" "1" "$( [[ -f "${SHARED_WS}/AGENTS.md" ]] && echo 1 || echo 0 )"
+assert_eq "init-shared created .agents/state.md" "1" "$( [[ -f "${SHARED_WS}/.agents/state.md" ]] && echo 1 || echo 0 )"
+assert_eq "init-shared created .agents/hooks.json" "1" "$( [[ -f "${SHARED_WS}/.agents/hooks.json" ]] && echo 1 || echo 0 )"
+assert_eq "init-shared created session-context.sh" "1" "$( [[ -x "${SHARED_WS}/.agents/hooks/session-context.sh" ]] && echo 1 || echo 0 )"
+assert_contains "init-shared added state.md to .git/info/exclude" ".agents/state.md" "$(cat "${SHARED_WS}/.git/info/exclude")"
+
+# Idempotency: existing AGENTS.md must not be overwritten
+echo "CUSTOM_AGENTS_CONTENT" > "${SHARED_WS}/AGENTS.md"
+"$RUNNER" init-shared "$SHARED_WS" --exclude-state >/dev/null
+assert_contains "init-shared preserves existing AGENTS.md" "CUSTOM_AGENTS_CONTENT" "$(cat "${SHARED_WS}/AGENTS.md")"
+
+# Session context hook runs cleanly and prints state.md
+HOOK_OUT="$(bash "${SHARED_WS}/.agents/hooks/session-context.sh")"
+assert_contains "session-context hook prints shared state" "Shared Workspace State" "$HOOK_OUT"
+
+# list-sessions against a read-only SQLite fixture
+if command -v python3 >/dev/null 2>&1; then
+  SHARED_WS_REAL="$(cd "$SHARED_WS" && pwd -P)"
+  python3 - "${CODEX_HOME_1}/state_5.sqlite" "$SHARED_WS_REAL" <<'PY'
+import sqlite3, sys
+db, cwd = sys.argv[1], sys.argv[2]
+conn = sqlite3.connect(db)
+conn.execute("CREATE TABLE threads (id TEXT PRIMARY KEY, cwd TEXT, updated_at INTEGER, archived INTEGER, model TEXT, title TEXT, preview TEXT)")
+conn.execute("INSERT INTO threads VALUES ('sess-active-1', ?, 1700000200, 0, 'gpt-6.2-sol', 'Implement auth', '')", (cwd,))
+conn.execute("INSERT INTO threads VALUES ('sess-archived-2', ?, 1700000300, 1, 'gpt-6.2-sol', 'Old archived', '')", (cwd,))
+conn.execute("INSERT INTO threads VALUES ('sess-other-3', '/other/dir', 1700000400, 0, 'gpt-6.2-sol', 'Other project', '')")
+conn.commit()
+conn.close()
+PY
+  LS_OUT="$(CODEX_HOME="$CODEX_HOME_1" "$RUNNER" list-sessions "$SHARED_WS" --limit 5)"
+  assert_contains "list-sessions returns active workspace thread" "sess-active-1" "$LS_OUT"
+  assert_not_contains "list-sessions excludes archived thread" "sess-archived-2" "$LS_OUT"
+  assert_not_contains "list-sessions excludes other workspace thread" "sess-other-3" "$LS_OUT"
+fi
+
+# fork fails closed without session ID, and passes fork <id> - when provided
+set +e
+FORK_FAIL_ERR="$(CODEX_HOME="$CODEX_HOME_1" "$RUNNER" fork "$SHARED_WS" "$PLAN_FILE" "${TMP_ROOT}/fork_no_sid.md" 2>&1)"
+FORK_FAIL_RC=$?
+set -e
+assert_eq "fork fails closed without session ID" "2" "$FORK_FAIL_RC"
+assert_contains "fork error mentions source session ID" "source session ID" "$FORK_FAIL_ERR"
+
+: > "$ARGS_LOG"
+FORK_OUT="${TMP_ROOT}/forked/last.md"
+MOCK_SESSION_ID="ffffffff-eeee-dddd-cccc-bbbbbbbbbbbb" CODEX_HOME="$CODEX_HOME_1" "$RUNNER" fork "$SHARED_WS" "$PLAN_FILE" "$FORK_OUT" --session "sess-active-1" >/dev/null
+FORK_ARGS="$(cat "$ARGS_LOG")"
+assert_contains "fork invokes codex exec fork with source ID" "fork" "$FORK_ARGS"
+assert_contains "fork passes source session ID" "sess-active-1" "$FORK_ARGS"
+assert_eq "fork saves new forked session ID" "ffffffff-eeee-dddd-cccc-bbbbbbbbbbbb" "$(cat "${TMP_ROOT}/forked/last.session_id")"
+
 echo ""
 echo "Summary: ${PASS_COUNT} passed, ${FAIL_COUNT} failed."
 if [[ "$FAIL_COUNT" -ne 0 ]]; then

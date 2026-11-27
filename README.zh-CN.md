@@ -36,7 +36,7 @@
 - **零第三方桥接 · 100% 官方正门**：不装 MCP Server、不用逆向反代、不依赖 tmux，直接通过官方 `codex exec` / `codex exec resume --last` 命令行协作，合规稳定。
 - **基于本机缓存的秒弹点选卡片（模型 / 推理强度 / 服务档位）**：安装与每次执行后自动解析本机 `~/.codex/models_cache.json` 与 `~/.codex/config.toml` 顶层默认项并同步进 `SKILL.md`，触发 `/codex` 时零额外命令轮次直接弹出当前本机缓存中的模型与推理强度列表（随本地 Codex 缓存更新自动刷新）。
 - **白名单轻量隔离（`--ignore-user-config`）+ 静默日志摘要**：默认跳过桌面 `~/.codex/config.toml` 里的插件与 MCP（仅白名单透传顶层 `model`、`model_reasoning_effort`、`service_tier` 与 `[features].respect_system_proxy`）以降低 Codex 启动上下文开销；同时将过程日志落盘 `.log`、终端仅回传最终摘要（支持 `--no-isolate` / `CODEX_VERBOSE=1`）。
-- **精确会话绑定 + 只读审查（`review`）+ 失败即中止的 `--worktree`**：`execute` 自动记录本次任务 `session_id` 到同目录 `.session_id` 文件，`resume` 优先精确续接该会话（仅无记录时回退 `--last`）；支持严格 `read-only` 只读审查；若请求 `--worktree` 但环境不支持则直接报错中止，绝不静默降级写主工作区。
+- **精确会话绑定、老线程分叉与双端项目共享**：通过 `--json` 结构化事件流精确绑定任务 `session_id`；内置 `list-sessions`（只读检索 `~/.codex/state_5.sqlite`）与无损 `fork`、一键 `init-shared`（生成 `AGENTS.md` + `.agents/state.md` + `SessionStart` Hook，实现独立 Codex 与 Antigravity 双向无缝感知改动，详见 [docs/SHARED_WORKSPACE.md](./docs/SHARED_WORKSPACE.md)），以及严格 `read-only` 审查与失败即中止的 `--worktree`。
 - **跨平台回归测试与 CI**：内置 Mock Codex CLI 回归测试套件（`tests/test-run-codex.sh` 与 `tests/test-run-codex.ps1`），在 GitHub Actions 上持续验证 **Ubuntu / macOS / Windows** 三平台行为。
 
 ---

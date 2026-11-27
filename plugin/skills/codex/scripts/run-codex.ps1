@@ -16,7 +16,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true, Position = 0)]
-  [ValidateSet("list-options", "sync-options", "execute", "review", "resume")]
+  [ValidateSet("list-options", "sync-options", "init-shared", "list-sessions", "execute", "review", "resume", "fork")]
   [string]$Mode,
 
   [Parameter(Mandatory = $false, Position = 1)]
@@ -41,6 +41,10 @@ param(
   [ValidateSet("", "priority", "default", "flex", "fast")]
   [string]$Tier = "",
 
+  [Parameter(Mandatory = $false)]
+  [int]$Limit = 10,
+
+  [switch]$ExcludeState,
   [switch]$Worktree,
   [switch]$NoIsolate,
   [switch]$Last,
@@ -157,6 +161,173 @@ if ($Mode -eq "list-options") {
 
 if ($Mode -eq "sync-options") {
   Sync-CodexOptionsIntoSkill
+  exit 0
+}
+
+if ($Mode -eq "init-shared") {
+  if ([string]::IsNullOrWhiteSpace($WorkspaceDir) -or -not (Test-Path -LiteralPath $WorkspaceDir -PathType Container)) {
+    Write-Error "ERROR: Workspace directory does not exist: $WorkspaceDir"
+    exit 2
+  }
+  $targetWs = (Resolve-Path -LiteralPath $WorkspaceDir).Path
+  New-Item -ItemType Directory -Path (Join-Path $targetWs ".agents\skills") -Force | Out-Null
+  New-Item -ItemType Directory -Path (Join-Path $targetWs ".agents\hooks") -Force | Out-Null
+
+  $agentsMd = Join-Path $targetWs "AGENTS.md"
+  if (-not (Test-Path -LiteralPath $agentsMd)) {
+    $agentsBody = @"
+# Project Agent Conventions (Shared by Codex & Antigravity)
+
+- **Hot State Handoff**: Read `.agents/state.md` at the start of a session to see recent work from other agents, and update it concisely (< 50 lines) after meaningful code changes.
+- **Long-Term Memory**: If a shared Memory MCP (such as `basic-memory`) is available, record lasting architecture decisions, environment caveats, and design trade-offs there.
+- **Shared Project Skills**: Place project-specific skills under `.agents/skills/<name>/SKILL.md` so both Codex and Antigravity discover them natively.
+"@
+    [System.IO.File]::WriteAllText($agentsMd, "$agentsBody`n", [System.Text.UTF8Encoding]::new($false))
+    Write-Output "  [CREATED] $agentsMd"
+  } else {
+    Write-Output "  [KEPT]    $agentsMd (already exists)"
+  }
+
+  $stateMd = Join-Path $targetWs ".agents\state.md"
+  if (-not (Test-Path -LiteralPath $stateMd)) {
+    $stateBody = @"
+# Shared Workspace State
+
+- **Current Goal**: (describe active milestone or task)
+- **Last Updated By**: (Codex / Antigravity / /codex)
+- **Recent Changes**:
+  - None recorded yet.
+- **Known Issues / Guardrails**:
+  - None recorded yet.
+- **Next Steps**:
+  - None recorded yet.
+"@
+    [System.IO.File]::WriteAllText($stateMd, "$stateBody`n", [System.Text.UTF8Encoding]::new($false))
+    Write-Output "  [CREATED] $stateMd"
+  } else {
+    Write-Output "  [KEPT]    $stateMd (already exists)"
+  }
+
+  $hookPs1 = Join-Path $targetWs ".agents\hooks\session-context.ps1"
+  if (-not (Test-Path -LiteralPath $hookPs1)) {
+    $hookBody = @'
+$ErrorActionPreference = "SilentlyContinue"
+$root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+Push-Location -LiteralPath $root
+try {
+  Write-Output "=== Shared Workspace Context ==="
+  if (Get-Command git -ErrorAction SilentlyContinue) {
+    & git rev-parse --is-inside-work-tree *> $null
+    if ($LASTEXITCODE -eq 0) {
+      Write-Output "-- git status --short --"
+      & git status --short
+      Write-Output "-- recent commits --"
+      & git log -n 5 --oneline
+    }
+  }
+  $statePath = Join-Path $root ".agents\state.md"
+  if (Test-Path -LiteralPath $statePath) {
+    Write-Output "-- .agents/state.md --"
+    Get-Content -LiteralPath $statePath -TotalCount 60 -Encoding UTF8
+  }
+} finally {
+  Pop-Location
+}
+'@
+    [System.IO.File]::WriteAllText($hookPs1, "$hookBody`n", [System.Text.UTF8Encoding]::new($false))
+    Write-Output "  [CREATED] $hookPs1"
+  } else {
+    Write-Output "  [KEPT]    $hookPs1 (already exists)"
+  }
+
+  $hooksJson = Join-Path $targetWs ".agents\hooks.json"
+  if (-not (Test-Path -LiteralPath $hooksJson)) {
+    $hooksBody = @'
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File .agents/hooks/session-context.ps1"
+          }
+        ]
+      }
+    ]
+  }
+}
+'@
+    [System.IO.File]::WriteAllText($hooksJson, "$hooksBody`n", [System.Text.UTF8Encoding]::new($false))
+    Write-Output "  [CREATED] $hooksJson"
+  } else {
+    Write-Output "  [KEPT]    $hooksJson (already exists)"
+  }
+
+  if ($ExcludeState) {
+    $gitCmd = Get-Command git -ErrorAction SilentlyContinue
+    if ($gitCmd) {
+      $gitDirRaw = (& git -C $targetWs rev-parse --git-dir 2>$null) -join ""
+      if ($LASTEXITCODE -eq 0 -and $gitDirRaw) {
+        $gitDirFull = if ([System.IO.Path]::IsPathRooted($gitDirRaw)) { $gitDirRaw } else { Join-Path $targetWs $gitDirRaw }
+        $excludeFile = Join-Path $gitDirFull "info\exclude"
+        $excludeDir = Split-Path -Parent $excludeFile
+        if (-not (Test-Path -LiteralPath $excludeDir)) { New-Item -ItemType Directory -Path $excludeDir -Force | Out-Null }
+        $existingLines = if (Test-Path -LiteralPath $excludeFile) { Get-Content -LiteralPath $excludeFile -Encoding UTF8 } else { @() }
+        if ($existingLines -notcontains ".agents/state.md") {
+          Add-Content -LiteralPath $excludeFile -Value "`n.agents/state.md" -Encoding UTF8
+          Write-Output "  [UPDATED] Added .agents/state.md to $excludeFile"
+        } else {
+          Write-Output "  [KEPT]    .agents/state.md already in $excludeFile"
+        }
+      }
+    }
+  }
+  Write-Output "==> Shared workspace initialized: $targetWs"
+  exit 0
+}
+
+if ($Mode -eq "list-sessions") {
+  if ($Limit -lt 1) {
+    Write-Error "ERROR: -Limit must be a positive integer."
+    exit 2
+  }
+  if ([string]::IsNullOrWhiteSpace($WorkspaceDir) -or -not (Test-Path -LiteralPath $WorkspaceDir -PathType Container)) {
+    Write-Error "ERROR: Workspace directory does not exist: $WorkspaceDir"
+    exit 2
+  }
+  $targetWs = (Resolve-Path -LiteralPath $WorkspaceDir).Path.TrimEnd('\', '/')
+  $stateDb = Join-Path $codexDir "state_5.sqlite"
+  if (-not (Test-Path -LiteralPath $stateDb)) {
+    Write-Output "No Codex session database found at: $stateDb"
+    exit 0
+  }
+  $pyCmd = Get-Command python -ErrorAction SilentlyContinue
+  if (-not $pyCmd) { $pyCmd = Get-Command python3 -ErrorAction SilentlyContinue }
+  if ($pyCmd) {
+    $pyCode = @'
+import datetime, os, sqlite3, sys
+db_path, cwd_target, limit = sys.argv[1], os.path.realpath(sys.argv[2]).rstrip("\\/"), int(sys.argv[3])
+conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+cur = conn.cursor()
+cur.execute(
+    "SELECT id, updated_at, COALESCE(model, ''), COALESCE(NULLIF(title, ''), preview, '') FROM threads WHERE archived = 0 AND rtrim(rtrim(cwd, '/'), '\\') = ? ORDER BY updated_at DESC LIMIT ?",
+    (cwd_target, limit),
+)
+rows = cur.fetchall()
+conn.close()
+if not rows:
+    print(f"No active Codex sessions found for workspace: {cwd_target}")
+else:
+    for sid, ts, model, title in rows:
+        dt = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if isinstance(ts, (int, float)) and ts > 0 else str(ts)
+        print(f"{sid} | {dt} | {model or 'default'} | {' '.join(str(title).split())[:80]}")
+'@
+    & $pyCmd.Source -c $pyCode $stateDb $targetWs $Limit
+  } else {
+    Write-Error "ERROR: python/python3 is required to query $stateDb on Windows."
+    exit 127
+  }
   exit 0
 }
 
@@ -318,6 +489,20 @@ try {
     Write-Output "==> [Codex Reviewer] Starting read-only audit in: $WorkspaceDir"
     Write-Output "==> [Codex Reviewer] Audit spec: $InputFile"
     $argsList = @("exec") + $approvalFlags + @("--color", "never") + $jsonFlags + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @($promptHeader)
+  } elseif ($Mode -eq "fork") {
+    if ([string]::IsNullOrWhiteSpace($Session) -and (Test-Path -LiteralPath $sessionFile)) {
+      $Session = ((Get-Content -LiteralPath $sessionFile -TotalCount 1 -Encoding UTF8) -join "").Trim()
+    }
+    if ([string]::IsNullOrWhiteSpace($Session)) {
+      [Console]::Error.WriteLine("ERROR: fork requires a source session ID (pass -Session <id> or provide an output path with an existing .session_id file).")
+      exit 2
+    }
+    foreach ($f in @($OutputFile, $eventsFile)) {
+      if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
+    }
+    Write-Output "==> [Codex Engineer] Forking Codex session '$Session' in: $WorkspaceDir"
+    Write-Output "==> [Codex Engineer] Fork prompt file: $InputFile"
+    $argsList = @("exec") + $approvalFlags + @("--color", "never", "fork") + $jsonFlags + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @($Session, "-")
   } else {
     if ((-not [string]::IsNullOrWhiteSpace($Session)) -and $Last) {
       [Console]::Error.WriteLine("ERROR: -Session and -Last are mutually exclusive.")

@@ -220,6 +220,28 @@ respect_system_proxy = true
   Assert-Contains "switched to run-codex.ps1" "run-codex.ps1" $installedSkill
   Assert-Contains "synced live model cache" "gpt-6.2-sol (GPT-6.2-Sol)" $installedSkill
 
+  Write-Output "=== Test 6: Shared workspace (init-shared & fork) ==="
+  $sharedWs = Join-Path $tmpRoot "shared_ws"
+  New-Item -ItemType Directory -Path $sharedWs -Force | Out-Null
+  & $runner init-shared $sharedWs | Out-Null
+  Assert-Eq "init-shared created AGENTS.md" "True" "$(Test-Path -LiteralPath (Join-Path $sharedWs 'AGENTS.md'))"
+  Assert-Eq "init-shared created .agents/state.md" "True" "$(Test-Path -LiteralPath (Join-Path $sharedWs '.agents\state.md'))"
+  Assert-Eq "init-shared created .agents/hooks.json" "True" "$(Test-Path -LiteralPath (Join-Path $sharedWs '.agents\hooks.json'))"
+
+  $forkFailOut = (& pwsh -NoProfile -File $runner fork $sharedWs $planFile (Join-Path $tmpRoot "fork_no_sid.md") 2>&1) -join "`n"
+  $forkFailRc = $LASTEXITCODE
+  Assert-Eq "fork fails closed without session ID" "2" "$forkFailRc"
+  Assert-Contains "fork fail-closed message" "source session ID" $forkFailOut
+
+  if (Test-Path $argsLog) { Remove-Item $argsLog -Force }
+  $forkOut = Join-Path $tmpRoot "forked\last.md"
+  $env:MOCK_SESSION_ID = "ffffffff-eeee-dddd-cccc-bbbbbbbbbbbb"
+  & $runner fork $sharedWs $planFile $forkOut -Session "sess-active-1" | Out-Null
+  $forkArgs = Get-Content -LiteralPath $argsLog -Raw
+  Assert-Contains "fork invokes codex exec fork" "fork" $forkArgs
+  Assert-Contains "fork passes source session ID" "sess-active-1" $forkArgs
+  Assert-Eq "fork saves new session ID" "ffffffff-eeee-dddd-cccc-bbbbbbbbbbbb" ((Get-Content -LiteralPath (Join-Path $tmpRoot "forked\last.session_id") -Raw).Trim())
+
   $env:Path = $origPath
   Write-Output ""
   Write-Output "Summary: $script:pass passed, $script:fail failed."

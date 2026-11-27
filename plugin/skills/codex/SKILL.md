@@ -28,9 +28,12 @@ description: >-
 
 ---
 
-## Phase 1：发散探路与“人话”任务书（Antigravity）
+## Phase 1：发散探路、读取共享上下文与“人话”任务书（Antigravity）
 
-1. **严禁越权改代码**：只用只读工具（`read_file`、搜索工具、只读命令）快速摸清相关代码结构、现有约定与可复用模块。
+1. **严禁越权改代码 + 优先感知跨端共享上下文**：
+   - 只用只读工具（`read_file`、搜索工具、只读命令）快速摸清相关代码结构、现有约定与可复用模块。
+   - **共享项目状态感知**：若工作区存在 `AGENTS.md` 或 `.agents/state.md`，优先读取以了解独立 Codex 或历史会话刚刚做过的改动、遗留问题与约定；若当前环境已配置 `basic-memory` 等共享记忆 MCP，按需检索该项目的长期架构决策并浓缩进任务书。
+   - **老会话接力（按需）**：若用户明确希望从 Codex Desktop / CLI 的某条历史会话继续干活，可先调用 `run-codex.sh list-sessions /absolute/path/to/workspace` 只读列出该项目最近的 Codex 线程，并在 Phase 3 使用 `fork --session <id>`（推荐，不污染原对话）或 `resume --session <id>` 接力。
 2. **发散思维前置与视觉分工（灵活判断）**：
    - **若需求开放、存在多种实现路径（如“快改轻量版 vs 高扩展重构版”）或发现潜在产品盲区**：先用通俗好懂的“人话”给出 2～3 个思路与利弊对比（必要时配合 `ask_question` 让用户一键选方向），帮用户打开思路、敲定大方向后再写方案卡片。
    - **若涉及前端视觉设计、配色布局或高清截图审阅**：优先由 Antigravity 直接与用户对齐视觉风格并完成审图，不要把大体积原图塞进 Codex 上下文；纯逻辑/工程模块再交由 Codex 实现。
@@ -95,7 +98,8 @@ description: >-
 <USER_HOME>/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh resume /absolute/path/to/workspace /absolute/path/to/artifact_dir/scratch/codex_fix_instructions.md /absolute/path/to/artifact_dir/scratch/codex_last_message.md
 ```
 
-3. **用“人话”向用户交付成果**：
+3. **单点回写共享状态 + 用“人话”向用户交付成果**：
+   - **共享项目状态回写（Single-Writer）**：若工作区存在 `.agents/state.md`，由 Antigravity 在验收通过后作为唯一写回口精简更新（控制在 50 行内：本次完成目标、`Last Updated By: /codex`、关键改动、遗留问题与下一步）；若配置了 `basic-memory` MCP 且本次产生了值得长期保留的架构决策或踩坑记录，一并沉淀写入，确保切回独立 Codex 时立即可感知。
    - 摒弃生硬晦涩的终端日志堆砌，用通俗清晰的语言告诉用户：
      - **做好了什么**：实际实现的效果与使用方式；
      - **动了哪里**：新增/修改的核心文件列表（附可点击的 `file://` 链接）及各自作用；
