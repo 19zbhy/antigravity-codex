@@ -198,7 +198,7 @@ function Get-CodexOptionsLines {
     $lines.Add("- models: (run codex once to populate ~/.codex/models_cache.json)")
     $lines.Add("- efforts: low, medium, high, xhigh")
   }
-  $lines.Add("- service_tiers: priority (快速/Fast), default (标准), flex (弹性省流)")
+  $lines.Add("- service_tiers: priority (快速/Fast), default (标准)")
   $projLines = Get-CodexProjectLines
   if ($projLines.Count -gt 0) {
     $lines.Add("- projects:")

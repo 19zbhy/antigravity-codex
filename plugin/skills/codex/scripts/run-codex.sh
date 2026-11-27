@@ -328,7 +328,7 @@ console.log(`- efforts: ${efforts.join(", ")}`);
     echo "- models: (run codex once to populate ~/.codex/models_cache.json)"
     echo "- efforts: low, medium, high, xhigh"
   fi
-  echo "- service_tiers: priority (快速/Fast), default (标准), flex (弹性省流)"
+  echo "- service_tiers: priority (快速/Fast), default (标准)"
   local proj_lines=""
   proj_lines="$(emit_projects || true)"
   if [[ -n "$proj_lines" ]]; then

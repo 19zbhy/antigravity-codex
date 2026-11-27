@@ -14,9 +14,9 @@ description: >-
 
 1. **1 轮秒弹选择卡片（若已在第 1 轮通过 `rules/AGENTS.md` 预热弹出，直接承接用户选择，勿重复弹卡片）**：
    - 直接读取下方由安装脚本与 `run-codex.sh` 自动同步好的本机实时快照（**不要在弹卡片前额外跑终端或读 `config.toml`**；仅当下方快照为 `- (not synced yet)` 时，才先跑一次 `run-codex.sh sync-options`）。
-   - **选项文案必须跟随用户语言且简洁无括号**：用户使用中文时，禁止在选项里出现 `medium`、`xhigh`、`priority`、`flex` 等英文枚举名或冗余括号说明，Phase 3 传参时再映射回路径与 CLI 参数（`--model <slug>`、`--effort <low|medium|high|xhigh|max|ultra>`、`--tier <priority|default|flex>`）：
+   - **选项文案必须跟随用户语言且简洁无括号**：用户使用中文时，禁止在选项里出现 `medium`、`xhigh`、`priority`、`default` 等英文枚举名或冗余括号说明，Phase 3 传参时再映射回路径与 CLI 参数（`--model <slug>`、`--effort <low|medium|high|xhigh|max|ultra>`、`--tier <priority|default>`）：
      - 思考深度映射：`low`→`低`、`medium`→`中`、`high`→`高`、`xhigh`→`超高`、`max`→`极高`、`ultra`→`极限`
-     - 响应速度映射：`priority`→`极速模式`、`default`→`标准速度`、`flex`→`省流模式`
+     - 响应速度映射：`priority`→`极速模式`、`default`→`标准速度`
    - 若用户尚未选择且未在 `/codex` 消息中显式指定全部参数，立即调用 `ask_question` 一次性弹出以下 4 题单选：
      - **问题 1（进入哪个 Codex 项目）**（仅当下方快照存在 `- projects:` 时展示）：
        - `(Recommended) 使用当前工作区`
@@ -29,7 +29,7 @@ description: >-
        - 按 `低 → 中 → 高 → 超高 → 极高 → 极限` 顺序列出快照 `- efforts:` 中包含的档位。
      - **问题 4（选择响应速度）**：
        - `(Recommended) 默认 · <default_tier 对应的中文名>`
-       - `极速模式`、`标准速度`、`省流模式`。
+       - `极速模式`、`标准速度`。
 2. **若用户选择了某个 Codex 项目（自动进入双端共享 + 可选接力老会话）**：
    - 将该项目路径作为本次任务的 `<workspace_dir>`，并立刻执行两步轻量准备：
      1. 若该项目尚未存在 `.agents/state.md`，自动运行 `run-codex.sh init-shared "<project_path>" --exclude-state` **无感开启双端共享状态**；
