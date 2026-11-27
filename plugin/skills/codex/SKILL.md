@@ -85,7 +85,9 @@ description: >-
 ```
 
 - **白名单轻量隔离（默认开启）**：脚本自动使用 `--ignore-user-config` 跳过桌面端 `~/.codex/config.toml` 里的重型插件与 MCP（仅白名单透传顶层 `model`、`model_reasoning_effort`、`service_tier` 与 `[features].respect_system_proxy`），以降低 Codex 启动与上下文开销（如需加载完整桌面配置可加 `--no-isolate`）。
-- **严格隔离失败即中止**：若传入 `--worktree` 但当前目录非 Git 仓库或 CLI 不支持，脚本会直接报错退出，绝不降级写主工作区。
+- **严格隔离失败即中止与安全清理**：若传入 `--worktree` 但当前目录非 Git 仓库或 CLI 不支持，脚本会直接报错退出，绝不降级写主工作区；合并或验收完毕后可用 `run-codex.sh cleanup-worktree <worktree_path> [--delete-branch]` 安全清理临时 worktree（默认拒绝丢弃未提交改动或未合并分支）。
+- **结构化交付与自动遥测摘要**：支持按需附加 `--structured`（使用内置 `resources/report.schema.json`）或 `--schema <file>` 约束 Codex 输出结构化验收 JSON；每次执行完毕后，脚本会自动从 `*.events.jsonl` 汇总耗时与 Token 用量，并附带 `git status --short` 与 `git diff --stat` 摘要。
+- **环境一键体检**：若遇到 CLI 异常、未登录或配置不生效，可直接运行 `run-codex.sh doctor` 快速定位环境状态。
 - **精确会话绑定**：`execute` 成功后会自动从日志提取本次 `session_id` 写入同目录的 `*.session_id`；后续 `resume` 只要传入同一个 `codex_last_message.md` 路径，即可精确续接该任务会话（亦支持 `--session <id>`），避免多任务并发时 `--last` 串会话。
 - **静默摘要模式（默认开启）**：完整过程日志会落盘到同目录的 `*.log` 文件，终端仅回传最终摘要（`codex_last_message.md`），减少 Antigravity 侧的无效上下文消耗（如需实时查看完整过程日志，可在调试时设置 `CODEX_VERBOSE=1`）。
 - 要求 Codex 遵守**精简输出纪律**：不要向 stdout 倾倒整份大文件或数百行原始日志，优先按行号定向查看或汇总验证结果。

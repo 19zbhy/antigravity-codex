@@ -16,7 +16,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true, Position = 0)]
-  [ValidateSet("list-options", "sync-options", "list-projects", "init-shared", "list-sessions", "show-session", "execute", "review", "resume", "fork")]
+  [ValidateSet("doctor", "list-options", "sync-options", "list-projects", "init-shared", "list-sessions", "show-session", "cleanup-worktree", "execute", "review", "resume", "fork")]
   [string]$Mode,
 
   [Parameter(Mandatory = $false, Position = 1)]
@@ -47,8 +47,14 @@ param(
   [Parameter(Mandatory = $false)]
   [int]$Turns = 10,
 
+  [Parameter(Mandatory = $false)]
+  [string]$Schema = "",
+
   [switch]$ExcludeState,
   [switch]$Worktree,
+  [switch]$Structured,
+  [switch]$DeleteBranch,
+  [switch]$Force,
   [switch]$NoIsolate,
   [switch]$Last,
   [switch]$VerboseOutput
@@ -110,6 +116,29 @@ function Get-SessionIdFromText([string]$LogPath) {
     if ($line -match '(?i)^\s*session id:\s*([0-9a-f-]{8,})\s*$') {
       return $Matches[1]
     }
+  }
+  return ""
+}
+
+function Get-UsageFromJsonl([string]$EventsPath) {
+  if (-not (Test-Path -LiteralPath $EventsPath)) { return "" }
+  $inp = 0; $cached = 0; $out = 0; $turns = 0
+  foreach ($raw in (Get-Content -LiteralPath $EventsPath -Encoding UTF8)) {
+    $line = $raw.Trim()
+    if (-not $line.StartsWith("{")) { continue }
+    try {
+      $obj = $line | ConvertFrom-Json -ErrorAction Stop
+      if ($obj -and ($obj.type -eq "turn.completed") -and $obj.usage) {
+        $turns++
+        if ($null -ne $obj.usage.input_tokens) { $inp += [int]$obj.usage.input_tokens }
+        if ($null -ne $obj.usage.cached_input_tokens) { $cached += [int]$obj.usage.cached_input_tokens }
+        if ($null -ne $obj.usage.output_tokens) { $out += [int]$obj.usage.output_tokens }
+      }
+    } catch {}
+  }
+  if ($turns -gt 0) {
+    $total = $inp + $out
+    return "tokens: input=$inp (cached=$cached) output=$out total=$total"
   }
   return ""
 }
@@ -188,6 +217,145 @@ function Sync-CodexOptionsIntoSkill {
   $replacement = "<!-- CODEX_LIVE_OPTIONS_START -->`n$block`n<!-- CODEX_LIVE_OPTIONS_END -->"
   $updated = [regex]::Replace($content, "<!-- CODEX_LIVE_OPTIONS_START -->[\s\S]*?<!-- CODEX_LIVE_OPTIONS_END -->", [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $replacement })
   [System.IO.File]::WriteAllText($skillPath, $updated, [System.Text.UTF8Encoding]::new($false))
+}
+
+if ($Mode -eq "doctor") {
+  $failures = 0
+  Write-Output "=== antigravity-codex doctor ==="
+  $codexBin = Get-Command codex -ErrorAction SilentlyContinue
+  if ($codexBin) {
+    $ver = (& codex --version 2>&1 | Select-Object -First 1) -join ""
+    Write-Output "  [OK]   codex CLI: $ver ($($codexBin.Source))"
+    $loginOut = (& codex login status 2>&1 | Select-Object -First 1) -join ""
+    if ($LASTEXITCODE -eq 0) {
+      Write-Output "  [OK]   codex auth: $loginOut"
+    } else {
+      Write-Output "  [FAIL] codex auth: not signed in (run 'codex login' in terminal)"
+      $failures++
+    }
+    $docHelp = (& codex exec --help 2>&1) -join "`n"
+    $caps = @()
+    if ($docHelp -match "--json") { $caps += "--json" }
+    if ($docHelp -match "--output-schema") { $caps += "--output-schema" }
+    if ($docHelp -match "--worktree") { $caps += "--worktree" }
+    if ($docHelp -match "--ignore-user-config") { $caps += "--ignore-user-config" }
+    if ($docHelp -match "--approve-for-me") { $caps += "--approve-for-me" }
+    Write-Output "  [OK]   codex exec flags: $(if ($caps.Count -gt 0) { $caps -join ' ' } else { 'basic' })"
+  } else {
+    Write-Output "  [FAIL] codex CLI: not found in PATH"
+    $failures++
+  }
+
+  if (Test-Path -LiteralPath $configFile) {
+    $dm = Get-TomlTopLevelString "model" $configFile
+    $de = Get-TomlTopLevelString "model_reasoning_effort" $configFile
+    $dt = Get-TomlTopLevelString "service_tier" $configFile
+    $dp = Get-TomlTopLevelString "model_provider" $configFile
+    Write-Output "  [OK]   config.toml: model=$(if ($dm) {$dm} else {'default'}) effort=$(if ($de) {$de} else {'default'}) tier=$(if ($dt) {$dt} else {'default'}) provider=$(if ($dp) {$dp} else {'openai'})"
+  } else {
+    Write-Output "  [WARN] config.toml: not found at $configFile"
+  }
+
+  if (Test-Path -LiteralPath $cacheFile) {
+    Write-Output "  [OK]   models_cache.json: found ($cacheFile)"
+  } else {
+    Write-Output "  [WARN] models_cache.json: not found (run codex once to populate)"
+  }
+
+  $stateDb = Join-Path $codexDir "state_5.sqlite"
+  if (Test-Path -LiteralPath $stateDb) {
+    $projCount = (Get-CodexProjectLines).Count
+    Write-Output "  [OK]   state_5.sqlite: found ($projCount Codex projects)"
+  } else {
+    Write-Output "  [WARN] state_5.sqlite: not found (Codex Desktop project/session lookup unavailable)"
+  }
+
+  $gitBin = Get-Command git -ErrorAction SilentlyContinue
+  if ($gitBin) {
+    $gitVer = (& git --version 2>&1 | Select-Object -First 1) -join ""
+    Write-Output "  [OK]   git: $gitVer"
+  } else {
+    Write-Output "  [WARN] git: not found (-Worktree and git diff summaries unavailable)"
+  }
+
+  $scriptDir = Split-Path -Parent $PSCommandPath
+  $skillPath = Join-Path (Split-Path -Parent $scriptDir) "SKILL.md"
+  if (Test-Path -LiteralPath $skillPath) {
+    $skillText = Get-Content -LiteralPath $skillPath -Raw -Encoding UTF8
+    if ($skillText -match "<USER_HOME>") {
+      Write-Output "  [WARN] SKILL.md: still contains <USER_HOME> placeholder (run install.ps1)"
+    } elseif ($skillText -match "\(not synced yet\)") {
+      Write-Output "  [WARN] SKILL.md: live options not synced yet (run sync-options)"
+    } else {
+      Write-Output "  [OK]   SKILL.md: installed and live options synced ($skillPath)"
+    }
+  } else {
+    Write-Output "  [WARN] SKILL.md: not found at $skillPath"
+  }
+
+  if ($failures -gt 0) {
+    Write-Output "==> Doctor finished with $failures failure(s)."
+    exit 1
+  }
+  Write-Output "==> Doctor passed: environment is ready."
+  exit 0
+}
+
+if ($Mode -eq "cleanup-worktree") {
+  if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    [Console]::Error.WriteLine("ERROR: 'git' is required for cleanup-worktree.")
+    exit 127
+  }
+  if ([string]::IsNullOrWhiteSpace($WorkspaceDir) -or -not (Test-Path -LiteralPath $WorkspaceDir -PathType Container)) {
+    [Console]::Error.WriteLine("ERROR: Worktree directory does not exist: $WorkspaceDir")
+    exit 2
+  }
+  $wtReal = (Resolve-Path -LiteralPath $WorkspaceDir).Path
+  $gitMarker = Join-Path $wtReal ".git"
+  if (Test-Path -LiteralPath $gitMarker -PathType Container) {
+    [Console]::Error.WriteLine("ERROR: Refusing to remove main Git repository checkout: $wtReal")
+    exit 2
+  }
+  if (-not (Test-Path -LiteralPath $gitMarker -PathType Leaf)) {
+    [Console]::Error.WriteLine("ERROR: Directory is not a linked Git worktree: $wtReal")
+    exit 2
+  }
+  $commonGitDir = (& git -C $wtReal rev-parse --git-common-dir 2>$null) -join ""
+  if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($commonGitDir)) {
+    [Console]::Error.WriteLine("ERROR: Unable to resolve parent Git repository for worktree: $wtReal")
+    exit 2
+  }
+  $commonGitFull = if ([System.IO.Path]::IsPathRooted($commonGitDir)) { $commonGitDir } else { Join-Path $wtReal $commonGitDir }
+  $mainRepo = Split-Path -Parent ((Resolve-Path -LiteralPath $commonGitFull).Path)
+  $wtBranch = (& git -C $wtReal symbolic-ref --short HEAD 2>$null) -join ""
+  if ($LASTEXITCODE -ne 0) { $wtBranch = "" }
+
+  if (-not $Force) {
+    $dirty = (& git -C $wtReal status --porcelain 2>$null) -join ""
+    if (-not [string]::IsNullOrWhiteSpace($dirty)) {
+      [Console]::Error.WriteLine("ERROR: Worktree has uncommitted changes. Commit/stash them first or pass -Force: $wtReal")
+      exit 2
+    }
+  }
+
+  if ($Force) {
+    & git -C $mainRepo worktree remove --force $wtReal
+  } else {
+    & git -C $mainRepo worktree remove $wtReal
+  }
+  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  Write-Output "==> [Codex Engineer] Removed worktree: $wtReal"
+
+  if ($DeleteBranch -and -not [string]::IsNullOrWhiteSpace($wtBranch)) {
+    if ($Force) {
+      & git -C $mainRepo branch -D $wtBranch
+    } else {
+      & git -C $mainRepo branch -d $wtBranch
+    }
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    Write-Output "==> [Codex Engineer] Deleted branch: $wtBranch"
+  }
+  exit 0
 }
 
 if ($Mode -eq "list-options") {
@@ -540,6 +708,24 @@ try {
     $worktreeFlags = @("--worktree")
   }
 
+  $schemaFlags = @()
+  if ($Structured -or (-not [string]::IsNullOrWhiteSpace($Schema))) {
+    if (($Mode -ne "execute") -and ($Mode -ne "review")) {
+      [Console]::Error.WriteLine("ERROR: -Structured / -Schema is only supported with 'execute' or 'review'.")
+      exit 2
+    }
+    $schemaPath = if (-not [string]::IsNullOrWhiteSpace($Schema)) { $Schema } else { Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) "resources\report.schema.json" }
+    if (-not (Test-Path -LiteralPath $schemaPath -PathType Leaf)) {
+      [Console]::Error.WriteLine("ERROR: Output schema file does not exist: $schemaPath")
+      exit 2
+    }
+    if ($helpText -notmatch "--output-schema") {
+      [Console]::Error.WriteLine("ERROR: -Structured / -Schema was requested, but the installed codex CLI does not support --output-schema.")
+      exit 2
+    }
+    $schemaFlags = @("--output-schema", $schemaPath)
+  }
+
   $isolateFlags = @()
   $cfgProvider = Get-TomlTopLevelString "model_provider" $configFile
   if ($isolate -and ($helpText -match "--ignore-user-config")) {
@@ -572,6 +758,7 @@ try {
   }
   if ($isolateFlags.Count -gt 0) { $overrideDesc += "isolated=on" }
   if ($worktreeFlags.Count -gt 0) { $overrideDesc += "worktree=on" }
+  if ($schemaFlags.Count -gt 0) { $overrideDesc += "schema=on" }
 
   if ($overrideDesc.Count -gt 0) {
     Write-Output "==> [Codex Engineer] Runtime config: $($overrideDesc -join ' ')"
@@ -590,7 +777,7 @@ try {
     $promptHeader = "You are the Principal Software Engineer in a Google Antigravity + OpenAI Codex workflow. <stdin> contains the user-approved specification defining the goal, UX/business behavior, edge cases, scope boundaries, and acceptance criteria inside $cwd. You own the 'How': inspect the relevant code, design clean and idiomatic engineering implementations matching existing codebase conventions, and strictly respect scope boundaries. Keep command outputs concise: never dump full large files or raw multi-hundred-line logs to stdout; prefer targeted line ranges or summarized checks. Do not run git commit or git push. Before finishing, run the relevant build, typecheck, lint, and test commands yourself inside the workspace and fix any failures on the spot so you deliver working, verified code in one pass. End with a concise technical summary of files changed and verification commands executed."
     Write-Output "==> [Codex Engineer] Starting implementation & self-test in: $WorkspaceDir"
     Write-Output "==> [Codex Engineer] Spec file: $InputFile"
-    $argsList = @("exec") + $approvalFlags + @("--color", "never") + $jsonFlags + $isolateFlags + $worktreeFlags + $overrideFlags + $gitFlags + $outFlags + @($promptHeader)
+    $argsList = @("exec") + $approvalFlags + @("--color", "never") + $jsonFlags + $isolateFlags + $worktreeFlags + $schemaFlags + $overrideFlags + $gitFlags + $outFlags + @($promptHeader)
   } elseif ($Mode -eq "review") {
     foreach ($f in @($OutputFile, $sessionFile, $eventsFile)) {
       if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
@@ -599,7 +786,7 @@ try {
     $promptHeader = "You are a Principal Code Reviewer & Architecture Auditor in a Google Antigravity + OpenAI Codex workflow. You are running in strict read-only mode inside $cwd - do not attempt to modify any files. Read the audit scope in <stdin>, inspect the relevant source files or git diff concisely (never dump full large files to stdout), and report concrete findings grouped by severity (Critical / Warning / Suggestion) with exact file:line references and actionable recommendations."
     Write-Output "==> [Codex Reviewer] Starting read-only audit in: $WorkspaceDir"
     Write-Output "==> [Codex Reviewer] Audit spec: $InputFile"
-    $argsList = @("exec") + $approvalFlags + @("--color", "never") + $jsonFlags + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @($promptHeader)
+    $argsList = @("exec") + $approvalFlags + @("--color", "never") + $jsonFlags + $isolateFlags + $schemaFlags + $overrideFlags + $gitFlags + $outFlags + @($promptHeader)
   } elseif ($Mode -eq "fork") {
     if ([string]::IsNullOrWhiteSpace($Session) -and (Test-Path -LiteralPath $sessionFile)) {
       $Session = ((Get-Content -LiteralPath $sessionFile -TotalCount 1 -Encoding UTF8) -join "").Trim()
@@ -651,6 +838,7 @@ try {
     }
   }
 
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
   if ($useJsonEvents) {
     if ($verbose) {
       $stdinContent | & codex @argsList 2>$logFile | Tee-Object -FilePath $eventsFile
@@ -673,6 +861,8 @@ try {
     }
     $capturedSid = Get-SessionIdFromText $logFile
   }
+  $sw.Stop()
+  $elapsedS = [int][Math]::Floor($sw.Elapsed.TotalSeconds)
 
   if (-not [string]::IsNullOrWhiteSpace($capturedSid)) {
     [System.IO.File]::WriteAllText($sessionFile, "$capturedSid`n", [System.Text.UTF8Encoding]::new($false))
@@ -684,7 +874,7 @@ try {
   if ($exitCode -ne 0) {
     $runFailed = $true
     [Console]::Error.WriteLine("")
-    [Console]::Error.WriteLine("ERROR: codex exited with code $exitCode.")
+    [Console]::Error.WriteLine("ERROR: codex exited with code $exitCode (after ${elapsedS}s).")
     if ((-not $verbose) -and (Test-Path -LiteralPath $logFile)) {
       [Console]::Error.WriteLine("Full process log: $logFile")
       [Console]::Error.WriteLine("--- Last 60 lines of log ---")
@@ -699,12 +889,32 @@ try {
     Write-Output "==> [Codex Engineer] Session ID: $capturedSid (saved to $sessionFile)"
   }
 
+  $usageSummary = if ($useJsonEvents) { Get-UsageFromJsonl $eventsFile } else { "" }
+  if (-not [string]::IsNullOrWhiteSpace($usageSummary)) {
+    Write-Output "==> [Codex Engineer] Telemetry: duration=${elapsedS}s | $usageSummary"
+  } else {
+    Write-Output "==> [Codex Engineer] Telemetry: duration=${elapsedS}s"
+  }
+
   if (-not $verbose) {
     Write-Output "==> [Codex Engineer] Completed cleanly. Full process log: $logFile"
     if ((Test-Path -LiteralPath $OutputFile) -and ((Get-Item -LiteralPath $OutputFile).Length -gt 0)) {
       Write-Output ""
       Write-Output "=== Codex Final Summary ==="
       Get-Content -LiteralPath $OutputFile -Raw -Encoding UTF8 | Write-Output
+    }
+    if ($isGitRepo -and ($Mode -ne "review")) {
+      $gitStatusLines = @(& git status --short 2>$null | Select-Object -First 40)
+      if ($gitStatusLines.Count -gt 0) {
+        Write-Output ""
+        Write-Output "=== Git Workspace Changes ==="
+        $gitStatusLines | ForEach-Object { Write-Output $_ }
+        $gitDiffLines = @(& git diff --stat 2>$null | Select-Object -First 40)
+        if ($gitDiffLines.Count -gt 0) {
+          Write-Output "--- git diff --stat ---"
+          $gitDiffLines | ForEach-Object { Write-Output $_ }
+        }
+      }
     }
   }
 } finally {

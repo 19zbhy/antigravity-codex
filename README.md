@@ -36,7 +36,8 @@ A lightweight, zero-dependency native plugin for **Google Antigravity** that pai
 - **Zero External Bridges & 100% Official Channels**: No MCP servers, no reverse proxies, no tmux wrappers — just a native Antigravity plugin invoking the official `codex exec` / `codex exec resume --last` CLI.
 - **Local-Cache-Backed Runtime Picker (`Model` / `Effort` / `Service Tier`)**: Syncs the local `~/.codex/models_cache.json` catalog and top-level `~/.codex/config.toml` defaults into `SKILL.md` on install and after each run, popping up a native Antigravity selector with zero extra pre-flight tool turns (and automatically refreshing as your local Codex CLI cache updates).
 - **Whitelist Isolation (`--ignore-user-config`) & Quiet Log-Summary Mode**: By default, `run-codex` skips desktop plugins and MCP servers in `~/.codex/config.toml` (whitelisting only top-level `model`, `model_reasoning_effort`, `service_tier`, and `[features].respect_system_proxy`) to reduce Codex prompt overhead, and writes verbose process logs to a sibling `.log` file while printing only the final summary to stdout (`--no-isolate` / `CODEX_VERBOSE=1` supported).
-- **Pinned Session Resume, Thread Forking, & Shared Workspaces**: Uses `--json` event streams (`thread.started`) to pin exact session IDs per run, supports `list-sessions` (read-only `~/.codex/state_5.sqlite` lookup) + non-destructive `fork`, `init-shared` (`AGENTS.md` + `.agents/state.md` + `SessionStart` hook for seamless switching between standalone Codex and Antigravity — see [docs/SHARED_WORKSPACE.md](./docs/SHARED_WORKSPACE.md)), strict `-s read-only` `review`, and fail-closed `--worktree`.
+- **Pinned Session Resume, Thread Forking, & Shared Workspaces**: Uses `--json` event streams (`thread.started`) to pin exact session IDs per run, supports `list-sessions` (read-only `~/.codex/state_5.sqlite` lookup) + `show-session` context handoff + `resume`/`fork`, `init-shared` (`AGENTS.md` + `.agents/state.md` + `SessionStart` hook — see [docs/SHARED_WORKSPACE.md](./docs/SHARED_WORKSPACE.md)), strict `-s read-only` `review`, and fail-closed `--worktree` with safe `cleanup-worktree`.
+- **Structured Delivery, Auto Telemetry, & `doctor` Health Check**: Optional `--structured` (`--output-schema resources/report.schema.json`) enforces a 6-field JSON delivery report; every completed run automatically summarizes elapsed duration, token usage (parsed from `*.events.jsonl`), and `git status --short` / `git diff --stat`; `run-codex doctor` verifies CLI, login status, caches, and plugin sync in one command.
 - **Cross-Platform & CI-Verified**: Tested in GitHub Actions across **Ubuntu, macOS, and Windows (PowerShell)** with mocked Codex CLI regression suites (`tests/test-run-codex.sh` and `tests/test-run-codex.ps1`).
 
 ---
@@ -152,11 +153,15 @@ antigravity-codex/
 
 ---
 
-## Acknowledgements
+## Acknowledgements & References
 
-- Quiet log-summary output, concise output discipline, and visual/UI ownership separation were inspired by [xinqinnain/antigravity-codex-commander](https://github.com/xinqinnain/antigravity-codex-commander).
-- `--ignore-user-config` whitelist isolation and `--worktree` branch isolation were inspired by [Silhouette-my/codex-in-anti](https://github.com/Silhouette-my/codex-in-anti).
-- Scenario-specific task templates (`implementation` / `bugfix` / `review`) and strict `read-only` audit mode were inspired by [lbc9168/antigravity-codex-worker](https://github.com/lbc9168/antigravity-codex-worker).
+`antigravity-codex` stands on the shoulders of the open-source Antigravity & Codex community. Several design ideas were inspired by or adapted from these projects:
+
+- [xinqinnain/antigravity-codex-commander](https://github.com/xinqinnain/antigravity-codex-commander) — quiet log-summary output, concise output discipline, and visual/UI ownership separation.
+- [Silhouette-my/codex-in-anti](https://github.com/Silhouette-my/codex-in-anti) — `--ignore-user-config` whitelist isolation and `--worktree` branch isolation.
+- [lbc9168/antigravity-codex-worker](https://github.com/lbc9168/antigravity-codex-worker) — scenario-specific task templates (`implementation` / `bugfix` / `review`) and strict `read-only` audit mode.
+- [JAY201368/codex-castor](https://github.com/JAY201368/codex-castor) — `doctor` environment health check, structured `--output-schema` delivery report (`report.schema.json`), automatic post-run duration/token telemetry & Git diff summary, and safe `cleanup-worktree` teardown.
+- [basicmachines-co/basic-memory](https://github.com/basicmachines-co/basic-memory) — optional cross-agent long-term memory MCP recommended in [docs/SHARED_WORKSPACE.md](./docs/SHARED_WORKSPACE.md).
 
 ---
 

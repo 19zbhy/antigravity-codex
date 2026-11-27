@@ -36,7 +36,8 @@
 - **零第三方桥接 · 100% 官方正门**：不装 MCP Server、不用逆向反代、不依赖 tmux，直接通过官方 `codex exec` / `codex exec resume --last` 命令行协作，合规稳定。
 - **基于本机缓存的秒弹点选卡片（模型 / 推理强度 / 服务档位）**：安装与每次执行后自动解析本机 `~/.codex/models_cache.json` 与 `~/.codex/config.toml` 顶层默认项并同步进 `SKILL.md`，触发 `/codex` 时零额外命令轮次直接弹出当前本机缓存中的模型与推理强度列表（随本地 Codex 缓存更新自动刷新）。
 - **白名单轻量隔离（`--ignore-user-config`）+ 静默日志摘要**：默认跳过桌面 `~/.codex/config.toml` 里的插件与 MCP（仅白名单透传顶层 `model`、`model_reasoning_effort`、`service_tier` 与 `[features].respect_system_proxy`）以降低 Codex 启动上下文开销；同时将过程日志落盘 `.log`、终端仅回传最终摘要（支持 `--no-isolate` / `CODEX_VERBOSE=1`）。
-- **精确会话绑定、老线程分叉与双端项目共享**：通过 `--json` 结构化事件流精确绑定任务 `session_id`；内置 `list-sessions`（只读检索 `~/.codex/state_5.sqlite`）与无损 `fork`、一键 `init-shared`（生成 `AGENTS.md` + `.agents/state.md` + `SessionStart` Hook，实现独立 Codex 与 Antigravity 双向无缝感知改动，详见 [docs/SHARED_WORKSPACE.md](./docs/SHARED_WORKSPACE.md)），以及严格 `read-only` 审查与失败即中止的 `--worktree`。
+- **精确会话绑定、老线程承接与双端项目共享**：通过 `--json` 结构化事件流精确绑定任务 `session_id`；内置 `list-projects` / `list-sessions`（只读检索 `~/.codex/state_5.sqlite`）、`show-session` 历史对话摘要提取、`resume`/`fork`、一键 `init-shared`（生成 `AGENTS.md` + `.agents/state.md` + `SessionStart` Hook，详见 [docs/SHARED_WORKSPACE.md](./docs/SHARED_WORKSPACE.md)），以及严格 `read-only` 审查、失败即中止的 `--worktree` 与安全清理命令 `cleanup-worktree`。
+- **结构化交付、自动遥测汇总与 `doctor` 一键体检**：支持 `--structured`（内置 `resources/report.schema.json`）约束 Codex 输出 6 字段结构化报告；每次执行结束后自动汇总耗时、Token 消耗（解析自 `*.events.jsonl`）及 `git status --short` / `git diff --stat`；内置 `run-codex doctor` 一键检查 CLI、登录态、本地缓存与插件同步状态。
 - **跨平台回归测试与 CI**：内置 Mock Codex CLI 回归测试套件（`tests/test-run-codex.sh` 与 `tests/test-run-codex.ps1`），在 GitHub Actions 上持续验证 **Ubuntu / macOS / Windows** 三平台行为。
 
 ---
@@ -152,11 +153,15 @@ antigravity-codex/
 
 ---
 
-## 致谢与灵感来源
+## 致谢与参考项目
 
-- 静默日志摘要输出、精简输出纪律与前端视觉分工思路受到 [xinqinnain/antigravity-codex-commander](https://github.com/xinqinnain/antigravity-codex-commander) 的启发。
-- `--ignore-user-config` 白名单隔离与 `--worktree` 分支隔离思路受到 [Silhouette-my/codex-in-anti](https://github.com/Silhouette-my/codex-in-anti) 的启发。
-- 分场景任务模板（`implementation` / `bugfix` / `review`）与严格 `read-only` 只读审查模式受到 [lbc9168/antigravity-codex-worker](https://github.com/lbc9168/antigravity-codex-worker) 的启发。
+`antigravity-codex` 在开发过程中受益于多个优秀的开源社区项目，以下设计思路借鉴或参考自这些仓库：
+
+- [xinqinnain/antigravity-codex-commander](https://github.com/xinqinnain/antigravity-codex-commander) — 静默日志摘要输出、精简输出纪律与前端视觉分工思路。
+- [Silhouette-my/codex-in-anti](https://github.com/Silhouette-my/codex-in-anti) — `--ignore-user-config` 白名单隔离与 `--worktree` 分支隔离思路。
+- [lbc9168/antigravity-codex-worker](https://github.com/lbc9168/antigravity-codex-worker) — 分场景任务模板（`implementation` / `bugfix` / `review`）与严格 `read-only` 只读审查模式。
+- [JAY201368/codex-castor](https://github.com/JAY201368/codex-castor) — `doctor` 环境一键体检、结构化 `--output-schema` 交付报告（`report.schema.json`）、执行后自动耗时/Token 遥测与 Git Diff 摘要，以及 `cleanup-worktree` 安全清理设计。
+- [basicmachines-co/basic-memory](https://github.com/basicmachines-co/basic-memory) — [docs/SHARED_WORKSPACE.md](./docs/SHARED_WORKSPACE.md) 中推荐的可选跨端长期记忆 MCP 方案。
 
 ---
 

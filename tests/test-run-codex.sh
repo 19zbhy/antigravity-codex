@@ -65,6 +65,10 @@ if [[ "${1:-}" == "--version" ]]; then
 fi
 
 if [[ "${1:-}" == "login" ]] && [[ "${2:-}" == "status" ]]; then
+  if [[ "${MOCK_LOGIN_FAIL:-0}" == "1" ]]; then
+    echo "Not logged in" >&2
+    exit 1
+  fi
   echo "Logged in using Mock"
   exit 0
 fi
@@ -75,6 +79,9 @@ if [[ "${1:-}" == "exec" ]] && [[ "${2:-}" == "--help" ]]; then
   echo "  --ignore-user-config"
   if [[ "${MOCK_NO_JSON:-0}" != "1" ]]; then
     echo "  --json"
+  fi
+  if [[ "${MOCK_NO_SCHEMA:-0}" != "1" ]]; then
+    echo "  --output-schema <FILE>"
   fi
   if [[ "${MOCK_NO_WORKTREE:-0}" != "1" ]]; then
     echo "  --worktree"
@@ -117,6 +124,9 @@ if [[ "${MOCK_NO_SESSION:-0}" != "1" ]]; then
 fi
 if [[ -n "${MOCK_EXTRA_LOG:-}" ]]; then
   printf '%s\n' "${MOCK_EXTRA_LOG}"
+fi
+if [[ "$IS_JSON" -eq 1 ]] && [[ "${MOCK_EMIT_USAGE:-0}" == "1" ]]; then
+  printf '{"type":"turn.completed","usage":{"input_tokens":1200,"cached_input_tokens":800,"output_tokens":350}}\n'
 fi
 if [[ -n "${MOCK_STDERR:-}" ]]; then
   printf '%s\n' "${MOCK_STDERR}" >&2
@@ -392,6 +402,80 @@ FORK_ARGS="$(cat "$ARGS_LOG")"
 assert_contains "fork invokes codex exec fork with source ID" "fork" "$FORK_ARGS"
 assert_contains "fork passes source session ID" "sess-active-1" "$FORK_ARGS"
 assert_eq "fork saves new forked session ID" "ffffffff-eeee-dddd-cccc-bbbbbbbbbbbb" "$(cat "${TMP_ROOT}/forked/last.session_id")"
+
+echo "=== Test 8: doctor, --structured schema, telemetry, git diff summary, cleanup-worktree ==="
+DOC_OK="$(CODEX_HOME="$CODEX_HOME_1" "$RUNNER" doctor)"
+assert_contains "doctor passes on healthy mock env" "Doctor passed" "$DOC_OK"
+assert_contains "doctor reports --output-schema capability" "--output-schema" "$DOC_OK"
+
+set +e
+DOC_FAIL="$(MOCK_LOGIN_FAIL=1 CODEX_HOME="$CODEX_HOME_1" "$RUNNER" doctor 2>&1)"
+DOC_FAIL_RC=$?
+set -e
+assert_eq "doctor fails with exit 1 when not logged in" "1" "$DOC_FAIL_RC"
+assert_contains "doctor failure mentions codex auth" "codex auth" "$DOC_FAIL"
+
+# Structured output schema + telemetry + git workspace changes
+: > "$ARGS_LOG"
+echo "dirty change" > "${SHARED_WS}/demo.txt"
+STRUCT_OUT_FILE="${TMP_ROOT}/structured/last.md"
+STRUCT_STDOUT="$(MOCK_EMIT_USAGE=1 CODEX_HOME="$CODEX_HOME_1" "$RUNNER" execute "$SHARED_WS" "$PLAN_FILE" "$STRUCT_OUT_FILE" --structured)"
+STRUCT_ARGS="$(cat "$ARGS_LOG")"
+assert_contains "--structured passes --output-schema" "--output-schema" "$STRUCT_ARGS"
+assert_contains "--structured uses bundled report.schema.json" "report.schema.json" "$STRUCT_ARGS"
+assert_contains "runtime config reports schema=on" "schema=on" "$STRUCT_STDOUT"
+assert_contains "telemetry prints aggregated token usage" "tokens: input=1200 (cached=800) output=350 total=1550" "$STRUCT_STDOUT"
+assert_contains "git workspace changes section printed" "=== Git Workspace Changes ===" "$STRUCT_STDOUT"
+assert_contains "git workspace changes lists demo.txt" "demo.txt" "$STRUCT_STDOUT"
+
+# Fail closed when --structured is used with resume or unsupported CLI
+set +e
+STRUCT_RES_ERR="$(CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$SHARED_WS" "$PLAN_FILE" "$STRUCT_OUT_FILE" --structured 2>&1)"
+STRUCT_RES_RC=$?
+STRUCT_NOSCHEMA_ERR="$(MOCK_NO_SCHEMA=1 CODEX_HOME="$CODEX_HOME_1" "$RUNNER" execute "$SHARED_WS" "$PLAN_FILE" "$STRUCT_OUT_FILE" --structured 2>&1)"
+STRUCT_NOSCHEMA_RC=$?
+set -e
+assert_eq "--structured rejected on resume" "2" "$STRUCT_RES_RC"
+assert_contains "--structured resume error message" "only supported with 'execute' or 'review'" "$STRUCT_RES_ERR"
+assert_eq "--structured fails closed when CLI lacks --output-schema" "2" "$STRUCT_NOSCHEMA_RC"
+assert_contains "--structured unsupported CLI error message" "does not support --output-schema" "$STRUCT_NOSCHEMA_ERR"
+
+# cleanup-worktree safety checks & clean teardown
+WT_REPO="${TMP_ROOT}/wt_repo"
+WT_LINKED="${TMP_ROOT}/wt_linked"
+mkdir -p "$WT_REPO"
+(
+  cd "$WT_REPO"
+  git init -q
+  git config user.email "test@example.com"
+  git config user.name "Test User"
+  echo "init" > README.md
+  git add README.md
+  git commit -q -m "init"
+  git worktree add -q -b codex/test-wt "$WT_LINKED"
+)
+
+set +e
+MAIN_CLEAN_ERR="$("$RUNNER" cleanup-worktree "$WT_REPO" 2>&1)"
+MAIN_CLEAN_RC=$?
+set -e
+assert_eq "cleanup-worktree refuses main repo checkout" "2" "$MAIN_CLEAN_RC"
+assert_contains "cleanup-worktree main repo error message" "Refusing to remove main Git repository" "$MAIN_CLEAN_ERR"
+
+echo "uncommitted" > "${WT_LINKED}/dirty.txt"
+set +e
+DIRTY_CLEAN_ERR="$("$RUNNER" cleanup-worktree "$WT_LINKED" 2>&1)"
+DIRTY_CLEAN_RC=$?
+set -e
+assert_eq "cleanup-worktree refuses dirty worktree without --force" "2" "$DIRTY_CLEAN_RC"
+assert_contains "cleanup-worktree dirty error message" "uncommitted changes" "$DIRTY_CLEAN_ERR"
+
+rm -f "${WT_LINKED}/dirty.txt"
+CLEAN_OK="$("$RUNNER" cleanup-worktree "$WT_LINKED" --delete-branch)"
+assert_contains "cleanup-worktree removes clean worktree" "Removed worktree" "$CLEAN_OK"
+assert_contains "cleanup-worktree deletes merged branch" "Deleted branch: codex/test-wt" "$CLEAN_OK"
+assert_eq "linked worktree directory removed" "0" "$( [[ -d "$WT_LINKED" ]] && echo 1 || echo 0 )"
+assert_not_contains "merged branch removed from git" "codex/test-wt" "$(git -C "$WT_REPO" branch --list)"
 
 echo ""
 echo "Summary: ${PASS_COUNT} passed, ${FAIL_COUNT} failed."

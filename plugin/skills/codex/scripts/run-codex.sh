@@ -13,14 +13,16 @@ CACHE_FILE="${CODEX_DIR}/models_cache.json"
 usage() {
   cat <<'EOF' >&2
 Usage:
+  run-codex.sh doctor
   run-codex.sh list-options
   run-codex.sh sync-options [skill_md_path]
   run-codex.sh list-projects
-  run-codex.sh init-shared   <workspace_dir> [--exclude-state]
-  run-codex.sh list-sessions <workspace_dir> [--limit <N>]
-  run-codex.sh show-session  <session_id> [--turns <N>]
-  run-codex.sh execute <workspace_dir> <plan_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--worktree] [--no-isolate] [--verbose]
-  run-codex.sh review  <workspace_dir> <spec_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate] [--verbose]
+  run-codex.sh init-shared      <workspace_dir> [--exclude-state]
+  run-codex.sh list-sessions    <workspace_dir> [--limit <N>]
+  run-codex.sh show-session     <session_id> [--turns <N>]
+  run-codex.sh cleanup-worktree <worktree_path> [--delete-branch] [--force]
+  run-codex.sh execute <workspace_dir> <plan_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--worktree] [--structured | --schema <file>] [--no-isolate] [--verbose]
+  run-codex.sh review  <workspace_dir> <spec_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--structured | --schema <file>] [--no-isolate] [--verbose]
   run-codex.sh resume  <workspace_dir> <fix_file>  [output_last_message_file] [--session <id> | --last] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate] [--verbose]
   run-codex.sh fork    <workspace_dir> <plan_file> [output_last_message_file] [--session <id>] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate] [--verbose]
 
@@ -173,6 +175,72 @@ extract_session_id_from_text() {
   ' "$log_file"
 }
 
+# Extract aggregated token usage across turn.completed events in structured JSONL stdout
+extract_usage_from_jsonl() {
+  local events_file="$1"
+  if [[ ! -f "$events_file" ]] || [[ ! -s "$events_file" ]]; then
+    return 0
+  fi
+  if command -v jq >/dev/null 2>&1; then
+    jq -Rs '
+      split("\n")
+      | map(try fromjson catch empty)
+      | map(select(type == "object" and .type == "turn.completed" and (.usage | type == "object")))
+      | if length == 0 then empty
+        else
+          {
+            in: (map(.usage.input_tokens // 0) | add),
+            cached: (map(.usage.cached_input_tokens // 0) | add),
+            out: (map(.usage.output_tokens // 0) | add)
+          }
+          | "tokens: input=\(.in) (cached=\(.cached)) output=\(.out) total=\(.in + .out)"
+        end
+    ' "$events_file" 2>/dev/null | sed 's/^"//; s/"$//' || true
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 - "$events_file" <<'PY' 2>/dev/null || true
+import json, sys
+inp = cached = out = turns = 0
+with open(sys.argv[1], "r", encoding="utf-8", errors="replace") as f:
+    for raw in f:
+        line = raw.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            obj = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(obj, dict) and obj.get("type") == "turn.completed":
+            u = obj.get("usage")
+            if isinstance(u, dict):
+                turns += 1
+                inp += int(u.get("input_tokens") or 0)
+                cached += int(u.get("cached_input_tokens") or 0)
+                out += int(u.get("output_tokens") or 0)
+if turns > 0:
+    print(f"tokens: input={inp} (cached={cached}) output={out} total={inp + out}")
+PY
+  elif command -v node >/dev/null 2>&1; then
+    node -e '
+const fs = require("fs");
+let inp = 0, cached = 0, out = 0, turns = 0;
+for (const raw of fs.readFileSync(process.argv[1], "utf8").split(/\r?\n/)) {
+  const line = raw.trim();
+  if (!line.startsWith("{")) continue;
+  try {
+    const obj = JSON.parse(line);
+    if (obj && obj.type === "turn.completed" && obj.usage && typeof obj.usage === "object") {
+      turns++;
+      inp += Number(obj.usage.input_tokens || 0);
+      cached += Number(obj.usage.cached_input_tokens || 0);
+      out += Number(obj.usage.output_tokens || 0);
+    }
+  } catch (_) {}
+}
+if (turns > 0) console.log(`tokens: input=${inp} (cached=${cached}) output=${out} total=${inp + out}`);
+' "$events_file" 2>/dev/null || true
+  fi
+}
+
 emit_projects() {
   local state_db="${CODEX_DIR}/state_5.sqlite"
   if [[ ! -f "$state_db" ]]; then
@@ -306,6 +374,159 @@ fi
 
 MODE="$1"
 shift
+
+if [[ "$MODE" == "doctor" ]]; then
+  FAILURES=0
+  echo "=== antigravity-codex doctor ==="
+  if command -v codex >/dev/null 2>&1; then
+    CODEX_BIN_PATH="$(command -v codex)"
+    CODEX_VER="$(codex --version 2>&1 | head -n 1 || true)"
+    echo "  [OK]   codex CLI: ${CODEX_VER:-found} (${CODEX_BIN_PATH})"
+    if codex login status >/dev/null 2>&1; then
+      LOGIN_MSG="$(codex login status 2>&1 | head -n 1 || true)"
+      echo "  [OK]   codex auth: ${LOGIN_MSG:-authenticated}"
+    else
+      echo "  [FAIL] codex auth: not signed in (run 'codex login' in terminal)"
+      FAILURES=$((FAILURES + 1))
+    fi
+    DOC_HELP="$(codex exec --help 2>&1 || true)"
+    CAPS=()
+    echo "$DOC_HELP" | grep -q -- '--json' && CAPS+=("--json")
+    echo "$DOC_HELP" | grep -q -- '--output-schema' && CAPS+=("--output-schema")
+    echo "$DOC_HELP" | grep -q -- '--worktree' && CAPS+=("--worktree")
+    echo "$DOC_HELP" | grep -q -- '--ignore-user-config' && CAPS+=("--ignore-user-config")
+    echo "$DOC_HELP" | grep -q -- '--approve-for-me' && CAPS+=("--approve-for-me")
+    echo "  [OK]   codex exec flags: ${CAPS[*]:-basic}"
+  else
+    echo "  [FAIL] codex CLI: not found in PATH"
+    FAILURES=$((FAILURES + 1))
+  fi
+
+  if [[ -f "$CONFIG_FILE" ]]; then
+    DM="$(read_toml_top_level "model" "$CONFIG_FILE")"
+    DE="$(read_toml_top_level "model_reasoning_effort" "$CONFIG_FILE")"
+    DT="$(read_toml_top_level "service_tier" "$CONFIG_FILE")"
+    DP="$(read_toml_top_level "model_provider" "$CONFIG_FILE")"
+    echo "  [OK]   config.toml: model=${DM:-default} effort=${DE:-default} tier=${DT:-default} provider=${DP:-openai}"
+  else
+    echo "  [WARN] config.toml: not found at ${CONFIG_FILE}"
+  fi
+
+  if [[ -f "$CACHE_FILE" ]]; then
+    echo "  [OK]   models_cache.json: found (${CACHE_FILE})"
+  else
+    echo "  [WARN] models_cache.json: not found (run codex once to populate)"
+  fi
+
+  if [[ -f "${CODEX_DIR}/state_5.sqlite" ]]; then
+    PROJ_COUNT="$(emit_projects | wc -l | tr -d '[:space:]')"
+    echo "  [OK]   state_5.sqlite: found (${PROJ_COUNT:-0} Codex projects)"
+  else
+    echo "  [WARN] state_5.sqlite: not found (Codex Desktop project/session lookup unavailable)"
+  fi
+
+  if command -v git >/dev/null 2>&1; then
+    GIT_VER="$(git --version 2>&1 | head -n 1 || true)"
+    echo "  [OK]   git: ${GIT_VER}"
+  else
+    echo "  [WARN] git: not found (--worktree and git diff summaries unavailable)"
+  fi
+
+  HELPERS=()
+  command -v python3 >/dev/null 2>&1 && HELPERS+=("python3")
+  command -v jq >/dev/null 2>&1 && HELPERS+=("jq")
+  command -v node >/dev/null 2>&1 && HELPERS+=("node")
+  command -v sqlite3 >/dev/null 2>&1 && HELPERS+=("sqlite3")
+  echo "  [OK]   helpers: ${HELPERS[*]:-none (fallback awk only)}"
+
+  if [[ -f "$SKILL_MD_PATH" ]]; then
+    if grep -q '<USER_HOME>' "$SKILL_MD_PATH"; then
+      echo "  [WARN] SKILL.md: still contains <USER_HOME> placeholder (run install.sh)"
+    elif grep -q '(not synced yet)' "$SKILL_MD_PATH"; then
+      echo "  [WARN] SKILL.md: live options not synced yet (run sync-options)"
+    else
+      echo "  [OK]   SKILL.md: installed and live options synced (${SKILL_MD_PATH})"
+    fi
+  else
+    echo "  [WARN] SKILL.md: not found at ${SKILL_MD_PATH}"
+  fi
+
+  if [[ "$FAILURES" -gt 0 ]]; then
+    echo "==> Doctor finished with ${FAILURES} failure(s)."
+    exit 1
+  fi
+  echo "==> Doctor passed: environment is ready."
+  exit 0
+fi
+
+if [[ "$MODE" == "cleanup-worktree" ]]; then
+  [[ $# -ge 1 ]] || usage
+  WT_PATH="$1"
+  shift
+  DELETE_BRANCH="0"
+  FORCE_CLEANUP="0"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --delete-branch) DELETE_BRANCH="1"; shift ;;
+      --force) FORCE_CLEANUP="1"; shift ;;
+      *) echo "ERROR: Unknown option '$1' for cleanup-worktree" >&2; usage ;;
+    esac
+  done
+  if ! command -v git >/dev/null 2>&1; then
+    echo "ERROR: 'git' is required for cleanup-worktree." >&2
+    exit 127
+  fi
+  if [[ ! -d "$WT_PATH" ]]; then
+    echo "ERROR: Worktree directory does not exist: $WT_PATH" >&2
+    exit 2
+  fi
+  WT_REAL="$(cd "$WT_PATH" && pwd -P)"
+  if [[ -d "${WT_REAL}/.git" ]]; then
+    echo "ERROR: Refusing to remove main Git repository checkout: $WT_REAL" >&2
+    exit 2
+  fi
+  if [[ ! -f "${WT_REAL}/.git" ]]; then
+    echo "ERROR: Directory is not a linked Git worktree: $WT_REAL" >&2
+    exit 2
+  fi
+  COMMON_GIT_DIR="$(git -C "$WT_REAL" rev-parse --git-common-dir 2>/dev/null || true)"
+  if [[ -z "$COMMON_GIT_DIR" ]]; then
+    echo "ERROR: Unable to resolve parent Git repository for worktree: $WT_REAL" >&2
+    exit 2
+  fi
+  if [[ "$COMMON_GIT_DIR" != /* ]]; then
+    COMMON_GIT_DIR="$(cd "${WT_REAL}/${COMMON_GIT_DIR}" && pwd -P)"
+  else
+    COMMON_GIT_DIR="$(cd "$COMMON_GIT_DIR" && pwd -P)"
+  fi
+  MAIN_REPO="$(dirname "$COMMON_GIT_DIR")"
+  WT_BRANCH="$(git -C "$WT_REAL" symbolic-ref --short HEAD 2>/dev/null || true)"
+
+  if [[ "$FORCE_CLEANUP" != "1" ]]; then
+    DIRTY_STATUS="$(git -C "$WT_REAL" status --porcelain 2>/dev/null || true)"
+    if [[ -n "$DIRTY_STATUS" ]]; then
+      echo "ERROR: Worktree has uncommitted changes. Commit/stash them first or pass --force: $WT_REAL" >&2
+      exit 2
+    fi
+  fi
+
+  if [[ "$FORCE_CLEANUP" == "1" ]]; then
+    git -C "$MAIN_REPO" worktree remove --force "$WT_REAL"
+  else
+    git -C "$MAIN_REPO" worktree remove "$WT_REAL"
+  fi
+  echo "==> [Codex Engineer] Removed worktree: $WT_REAL"
+
+  if [[ "$DELETE_BRANCH" == "1" ]] && [[ -n "$WT_BRANCH" ]]; then
+    if [[ "$FORCE_CLEANUP" == "1" ]]; then
+      git -C "$MAIN_REPO" branch -D "$WT_BRANCH"
+    else
+      git -C "$MAIN_REPO" branch -d "$WT_BRANCH"
+    fi
+    echo "==> [Codex Engineer] Deleted branch: $WT_BRANCH"
+  fi
+  exit 0
+fi
 
 if [[ "$MODE" == "list-options" ]]; then
   emit_options
@@ -628,6 +849,8 @@ EFFORT="${CODEX_EFFORT:-}"
 TIER="${CODEX_TIER:-}"
 ISOLATE="${CODEX_ISOLATE:-1}"
 USE_WORKTREE="0"
+USE_STRUCTURED="0"
+SCHEMA_FILE=""
 VERBOSE="${CODEX_VERBOSE:-0}"
 
 # Optional 4th positional argument: output_last_message_file (if not starting with --)
@@ -665,6 +888,15 @@ while [[ $# -gt 0 ]]; do
     --worktree)
       USE_WORKTREE="1"
       shift
+      ;;
+    --structured)
+      USE_STRUCTURED="1"
+      shift
+      ;;
+    --schema)
+      [[ $# -ge 2 ]] || { echo "ERROR: --schema requires a file path" >&2; exit 2; }
+      SCHEMA_FILE="$2"
+      shift 2
       ;;
     --no-isolate)
       ISOLATE="0"
@@ -766,6 +998,27 @@ if [[ "$USE_WORKTREE" == "1" ]]; then
   WORKTREE_FLAGS=(--worktree)
 fi
 
+# Structured JSON output schema (--structured uses bundled report.schema.json, or custom --schema <file>)
+SCHEMA_FLAGS=()
+if [[ "$USE_STRUCTURED" == "1" ]] || [[ -n "$SCHEMA_FILE" ]]; then
+  if [[ "$MODE" != "execute" ]] && [[ "$MODE" != "review" ]]; then
+    echo "ERROR: --structured / --schema is only supported with 'execute' or 'review'." >&2
+    exit 2
+  fi
+  if [[ -z "$SCHEMA_FILE" ]]; then
+    SCHEMA_FILE="${SCRIPT_DIR}/../resources/report.schema.json"
+  fi
+  if [[ ! -f "$SCHEMA_FILE" ]]; then
+    echo "ERROR: Output schema file does not exist: $SCHEMA_FILE" >&2
+    exit 2
+  fi
+  if ! echo "$EXEC_HELP" | grep -q -- '--output-schema'; then
+    echo "ERROR: --structured / --schema was requested, but the installed codex CLI does not support --output-schema." >&2
+    exit 2
+  fi
+  SCHEMA_FLAGS=(--output-schema "$SCHEMA_FILE")
+fi
+
 # Whitelist isolation (--ignore-user-config): skip desktop plugins & MCPs while keeping auth.json
 ISOLATE_FLAGS=()
 CFG_PROVIDER="$(read_toml_top_level "model_provider" "$CONFIG_FILE")"
@@ -805,9 +1058,14 @@ fi
 if [[ ${#WORKTREE_FLAGS[@]} -gt 0 ]]; then
   OVERRIDE_DESC+=("worktree=on")
 fi
+if [[ ${#SCHEMA_FLAGS[@]} -gt 0 ]]; then
+  OVERRIDE_DESC+=("schema=on")
+fi
 
 run_codex_cmd() {
   local exit_code=0
+  local start_ts end_ts elapsed_s
+  start_ts="$(date +%s)"
   if [[ "$USE_JSON_EVENTS" -eq 1 ]]; then
     if [[ "$VERBOSE" == "1" ]]; then
       "$@" 2>"$LOG_FILE" | tee "$EVENTS_FILE" || exit_code=${PIPESTATUS[0]}
@@ -824,6 +1082,8 @@ run_codex_cmd() {
       "$@" >"$LOG_FILE" 2>&1 || exit_code=$?
     fi
   fi
+  end_ts="$(date +%s)"
+  elapsed_s=$((end_ts - start_ts))
 
   # Capture authoritative Codex session ID using the matching parser for the active output mode
   local captured_sid=""
@@ -841,7 +1101,7 @@ run_codex_cmd() {
 
   if [[ "$exit_code" -ne 0 ]]; then
     echo "" >&2
-    echo "ERROR: codex exited with code $exit_code." >&2
+    echo "ERROR: codex exited with code $exit_code (after ${elapsed_s}s)." >&2
     if [[ "$VERBOSE" != "1" ]] && [[ -f "$LOG_FILE" ]] && [[ -s "$LOG_FILE" ]]; then
       echo "Full process log: $LOG_FILE" >&2
       echo "--- Last 60 lines of log ---" >&2
@@ -861,6 +1121,16 @@ run_codex_cmd() {
     echo "==> [Codex Engineer] Session ID: $captured_sid (saved to $SESSION_FILE)"
   fi
 
+  local usage_summary=""
+  if [[ "$USE_JSON_EVENTS" -eq 1 ]]; then
+    usage_summary="$(extract_usage_from_jsonl "$EVENTS_FILE" || true)"
+  fi
+  if [[ -n "$usage_summary" ]]; then
+    echo "==> [Codex Engineer] Telemetry: duration=${elapsed_s}s | ${usage_summary}"
+  else
+    echo "==> [Codex Engineer] Telemetry: duration=${elapsed_s}s"
+  fi
+
   if [[ "$VERBOSE" != "1" ]]; then
     if [[ "$USE_JSON_EVENTS" -eq 1 ]]; then
       echo "==> [Codex Engineer] Completed cleanly. Events: $EVENTS_FILE | Full process log: $LOG_FILE"
@@ -871,6 +1141,20 @@ run_codex_cmd() {
       echo ""
       echo "=== Codex Final Summary ==="
       cat "$OUTPUT_FILE"
+    fi
+    if [[ "$IS_GIT_REPO" -eq 1 ]] && [[ "$MODE" != "review" ]]; then
+      local git_status_out git_diff_stat
+      git_status_out="$(git status --short 2>/dev/null | head -n 40 || true)"
+      if [[ -n "$git_status_out" ]]; then
+        echo ""
+        echo "=== Git Workspace Changes ==="
+        printf '%s\n' "$git_status_out"
+        git_diff_stat="$(git diff --stat 2>/dev/null | head -n 40 || true)"
+        if [[ -n "$git_diff_stat" ]]; then
+          echo "--- git diff --stat ---"
+          printf '%s\n' "$git_diff_stat"
+        fi
+      fi
     fi
   fi
 }
@@ -894,6 +1178,7 @@ case "$MODE" in
       ${JSON_FLAGS[@]+"${JSON_FLAGS[@]}"} \
       ${ISOLATE_FLAGS[@]+"${ISOLATE_FLAGS[@]}"} \
       ${WORKTREE_FLAGS[@]+"${WORKTREE_FLAGS[@]}"} \
+      ${SCHEMA_FLAGS[@]+"${SCHEMA_FLAGS[@]}"} \
       ${OVERRIDE_FLAGS[@]+"${OVERRIDE_FLAGS[@]}"} \
       ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
       ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
@@ -911,6 +1196,7 @@ case "$MODE" in
       --color never \
       ${JSON_FLAGS[@]+"${JSON_FLAGS[@]}"} \
       ${ISOLATE_FLAGS[@]+"${ISOLATE_FLAGS[@]}"} \
+      ${SCHEMA_FLAGS[@]+"${SCHEMA_FLAGS[@]}"} \
       ${OVERRIDE_FLAGS[@]+"${OVERRIDE_FLAGS[@]}"} \
       ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
       ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
@@ -1004,7 +1290,7 @@ case "$MODE" in
     ;;
 
   *)
-    echo "ERROR: Unknown subcommand '$MODE' (expected 'list-options', 'sync-options', 'init-shared', 'list-sessions', 'execute', 'review', 'resume', or 'fork')." >&2
+    echo "ERROR: Unknown subcommand '$MODE' (expected 'doctor', 'list-options', 'sync-options', 'list-projects', 'init-shared', 'list-sessions', 'show-session', 'cleanup-worktree', 'execute', 'review', 'resume', or 'fork')." >&2
     usage
     ;;
 esac

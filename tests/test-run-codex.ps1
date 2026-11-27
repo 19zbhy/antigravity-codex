@@ -62,6 +62,10 @@ if "%~1"=="--version" (
   exit /b 0
 )
 if "%~1"=="login" if "%~2"=="status" (
+  if "%MOCK_LOGIN_FAIL%"=="1" (
+    echo Not logged in 1>&2
+    exit /b 1
+  )
   echo Logged in using Mock
   exit /b 0
 )
@@ -70,6 +74,7 @@ if "%~1"=="exec" if "%~2"=="--help" (
   echo   --approve-for-me
   echo   --ignore-user-config
   if not "%MOCK_NO_JSON%"=="1" echo   --json
+  if not "%MOCK_NO_SCHEMA%"=="1" echo   --output-schema ^<FILE^>
   if not "%MOCK_NO_WORKTREE%"=="1" echo   --worktree
   exit /b 0
 )
@@ -93,6 +98,9 @@ if not "%MOCK_NO_SESSION%"=="1" (
 )
 if not "%MOCK_EXTRA_LOG%"=="" (
   echo %MOCK_EXTRA_LOG%
+)
+if "!IS_JSON!"=="1" if "%MOCK_EMIT_USAGE%"=="1" (
+  echo {"type":"turn.completed","usage":{"input_tokens":1200,"cached_input_tokens":800,"output_tokens":350}}
 )
 if not "!OUT_FILE!"=="" if not "%MOCK_NO_SUMMARY%"=="1" (
   echo Mock summary completed.>"!OUT_FILE!"
@@ -241,6 +249,56 @@ respect_system_proxy = true
   Assert-Contains "fork invokes codex exec fork" "fork" $forkArgs
   Assert-Contains "fork passes source session ID" "sess-active-1" $forkArgs
   Assert-Eq "fork saves new session ID" "ffffffff-eeee-dddd-cccc-bbbbbbbbbbbb" ((Get-Content -LiteralPath (Join-Path $tmpRoot "forked\last.session_id") -Raw).Trim())
+
+  Write-Output "=== Test 7: doctor, -Structured, telemetry, cleanup-worktree ==="
+  $docOk = (& pwsh -NoProfile -File $runner doctor 2>&1) -join "`n"
+  Assert-Contains "doctor passes on healthy mock env" "Doctor passed" $docOk
+  Assert-Contains "doctor reports --output-schema" "--output-schema" $docOk
+
+  $env:MOCK_LOGIN_FAIL = "1"
+  $docFail = (& pwsh -NoProfile -File $runner doctor 2>&1) -join "`n"
+  $docFailRc = $LASTEXITCODE
+  $env:MOCK_LOGIN_FAIL = ""
+  Assert-Eq "doctor fails with exit 1 when not logged in" "1" "$docFailRc"
+  Assert-Contains "doctor failure mentions codex auth" "codex auth" $docFail
+
+  if (Test-Path $argsLog) { Remove-Item $argsLog -Force }
+  $structOut = Join-Path $tmpRoot "structured\last.md"
+  $env:MOCK_EMIT_USAGE = "1"
+  $structStdout = (& pwsh -NoProfile -File $runner execute $workspace $planFile $structOut -Structured 2>&1) -join "`n"
+  $env:MOCK_EMIT_USAGE = ""
+  $structArgs = Get-Content -LiteralPath $argsLog -Raw
+  Assert-Contains "-Structured passes --output-schema" "--output-schema" $structArgs
+  Assert-Contains "-Structured uses bundled report.schema.json" "report.schema.json" $structArgs
+  Assert-Contains "telemetry prints aggregated tokens" "tokens: input=1200 (cached=800) output=350 total=1550" $structStdout
+
+  $wtRepo = Join-Path $tmpRoot "wt_repo"
+  $wtLinked = Join-Path $tmpRoot "wt_linked"
+  New-Item -ItemType Directory -Path $wtRepo -Force | Out-Null
+  & git -C $wtRepo init -q
+  & git -C $wtRepo config user.email "test@example.com"
+  & git -C $wtRepo config user.name "Test User"
+  [System.IO.File]::WriteAllText((Join-Path $wtRepo "README.md"), "init`n", [System.Text.UTF8Encoding]::new($false))
+  & git -C $wtRepo add README.md
+  & git -C $wtRepo commit -q -m "init"
+  & git -C $wtRepo worktree add -q -b codex/test-wt $wtLinked
+
+  $mainCleanOut = (& pwsh -NoProfile -File $runner cleanup-worktree $wtRepo 2>&1) -join "`n"
+  $mainCleanRc = $LASTEXITCODE
+  Assert-Eq "cleanup-worktree refuses main repo checkout" "2" "$mainCleanRc"
+  Assert-Contains "cleanup-worktree main repo error" "Refusing to remove main Git repository" $mainCleanOut
+
+  [System.IO.File]::WriteAllText((Join-Path $wtLinked "dirty.txt"), "uncommitted`n", [System.Text.UTF8Encoding]::new($false))
+  $dirtyCleanOut = (& pwsh -NoProfile -File $runner cleanup-worktree $wtLinked 2>&1) -join "`n"
+  $dirtyCleanRc = $LASTEXITCODE
+  Assert-Eq "cleanup-worktree refuses dirty worktree" "2" "$dirtyCleanRc"
+  Assert-Contains "cleanup-worktree dirty error" "uncommitted changes" $dirtyCleanOut
+
+  Remove-Item -LiteralPath (Join-Path $wtLinked "dirty.txt") -Force
+  $cleanOk = (& pwsh -NoProfile -File $runner cleanup-worktree $wtLinked -DeleteBranch 2>&1) -join "`n"
+  Assert-Contains "cleanup-worktree removes clean worktree" "Removed worktree" $cleanOk
+  Assert-Contains "cleanup-worktree deletes merged branch" "Deleted branch: codex/test-wt" $cleanOk
+  Assert-Eq "linked worktree directory removed" "False" "$(Test-Path -LiteralPath $wtLinked)"
 
   $env:Path = $origPath
   Write-Output ""
