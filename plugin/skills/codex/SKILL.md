@@ -52,7 +52,11 @@ description: >-
 
 ---
 
-## Phase 1：发散探路、读取共享上下文与“人话”任务书（Antigravity）
+## Phase 1：任务分级、快速探路与“人话”任务书（Antigravity）
+
+0. **任务分级：轻量操作直达快车道（Fast Path）vs 正式方案门禁（Full Plan Path）**：
+   - **快车道（免写 `implementation_plan.md`、免等 `Proceed`）**：若用户需求是**目标单一明确、无不可逆破坏风险**的轻量操作或小改动——例如：启停/重启服务或小组件、运行构建/测试/脚本、查询运行状态或日志、明确的一两行微调、或只读代码审查（`review`）——**禁止做多轮冗长摸排、不要写 4 大模块正式方案卡片**！直接把简洁指令写入 `<Artifact Directory Path>/scratch/codex_task.md`，**立即跳到 Phase 3 调用 `run-codex.sh` 交给 Codex 执行**。
+   - **正式门禁（走下方 Phase 1 → Phase 2）**：涉及跨文件功能开发、架构重构、多方案取舍、或存在删除/覆盖/配置修改等风险的任务，先并行只读摸排（**尽量合并在 1 轮内完成**），再出 `implementation_plan.md` 等待用户点击 **Proceed**。
 
 1. **严禁越权改代码 + 优先感知跨端共享上下文**：
    - 只用只读工具（`read_file`、搜索工具、只读命令）快速摸清相关代码结构、现有约定与可复用模块。
@@ -75,7 +79,9 @@ description: >-
 
 ---
 
-## Phase 2：强制人工确认门禁（Mandatory Approval Gate）
+## Phase 2：强制人工确认门禁（正式方案任务适用）
+
+> 轻量直达任务（Fast Path）与只读审查（`review`）跳过本阶段，直接进入 Phase 3。
 
 1. 用简明“人话”总结方案的核心思路与取舍点，引导用户查看 `implementation_plan.md`，然后**立即停止工具调用，等待用户拍板**。
 2. 若用户提出调整意见，先更新 `implementation_plan.md` 并再次请用户确认；在用户明确点头（点击 **Proceed** 或回复确认）前，**严禁调用 `run-codex.sh`**。
