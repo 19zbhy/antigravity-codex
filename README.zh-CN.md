@@ -28,7 +28,7 @@
   - **Antigravity（需求分析 + 终审把关）**：负责发散思维探路、输出抓大放小的“人话”任务书、划定边缘防坑清单与红线边界、独立复核 `git diff` 并用人话汇报。
   - **Codex CLI（工程实现 + 现场自测）**：拿到清晰目标后自主决定最地道的工程实现，并在工作区现场跑通构建、Lint 与单测闭环，一次交出能跑通的代码。
 - **零第三方桥接 · 100% 官方正门**：不装 MCP Server、不用逆向反代、不依赖 tmux，直接通过官方 `codex exec` / `codex exec resume --last` 命令行协作，合规稳定。
-- **大任务更省 Antigravity 额度**：把最耗轮次的多文件编码与编译试错卸载到单次脚本调用中，由你的 Codex 额度分担重体力施工。
+- **静默日志摘要 · 大幅省额度**：把多文件编码与编译试错卸载到单次脚本调用中；默认开启静默摘要模式，将冗长的过程日志落盘到 `.log` 文件、终端仅回传最终结果摘要（调试时可设 `CODEX_VERBOSE=1`），并配合精简输出纪律与前端视觉优先对齐策略。
 - **全平台支持**：原生提供 **macOS / Linux (`run-codex.sh`)** 与 **Windows (`run-codex.ps1`)** 双端支持。
 
 ---
@@ -141,6 +141,12 @@ antigravity-codex/
             ├── run-codex.sh               # macOS / Linux 执行器（兼容 Bash 3.2）
             └── run-codex.ps1              # Windows PowerShell 执行器
 ```
+
+---
+
+## 致谢与灵感来源
+
+- 本项目的静默日志摘要输出、精简输出纪律与前端视觉分工思路受到 [xinqinnain/antigravity-codex-commander](https://github.com/xinqinnain/antigravity-codex-commander) 的启发，在此致谢。
 
 ---
 

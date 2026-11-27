@@ -28,7 +28,7 @@ A lightweight, zero-dependency native plugin for **Google Antigravity** that pai
   - **Antigravity (Architecture & Final Review)** owns divergent brainstorming, human-readable specs, edge-case guardrails, scope boundaries, and final diff review.
   - **Codex CLI (Engineering & Self-Test)** owns idiomatic implementation and runs build/lint/unit-test loops on the spot before handing back working code.
 - **Zero External Bridges & 100% Official Channels**: No MCP servers, no reverse proxies, no tmux wrappers — just a native Antigravity plugin invoking the official `codex exec` / `codex exec resume --last` CLI.
-- **Quota-Friendly for Heavy Tasks**: Offloads multi-file coding and compile/test fix loops into a single shell turn backed by your OpenAI Codex subscription/API.
+- **Quota-Friendly Quiet Log-Summary Mode**: Offloads multi-file coding and compile/test fix loops into a single shell turn. By default, verbose Codex process logs are written to a `.log` file while only the concise final summary is returned to Antigravity (set `CODEX_VERBOSE=1` for full streaming), paired with concise output discipline and visual-first UI alignment.
 - **Cross-Platform**: Works out of the box on **macOS, Linux, and Windows (PowerShell)**.
 
 ---
@@ -141,6 +141,12 @@ antigravity-codex/
             ├── run-codex.sh               # macOS / Linux runner (Bash 3.2 safe)
             └── run-codex.ps1              # Windows PowerShell runner
 ```
+
+---
+
+## Acknowledgements
+
+- Quiet log-summary output, concise output discipline, and visual/UI ownership separation were inspired by [xinqinnain/antigravity-codex-commander](https://github.com/xinqinnain/antigravity-codex-commander).
 
 ---
 

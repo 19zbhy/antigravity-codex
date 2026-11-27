@@ -9,6 +9,9 @@ usage() {
 Usage:
   run-codex.sh execute <workspace_dir> <plan_file> [output_last_message_file]
   run-codex.sh resume  <workspace_dir> <fix_file>  [output_last_message_file]
+
+Environment variables:
+  CODEX_VERBOSE=1   Stream full codex process output to stdout instead of quiet log-summary mode.
 EOF
   exit 2
 }
@@ -21,6 +24,7 @@ MODE="$1"
 WORKSPACE_DIR="$2"
 INPUT_FILE="$3"
 OUTPUT_FILE="${4:-}"
+VERBOSE="${CODEX_VERBOSE:-0}"
 
 if ! command -v codex >/dev/null 2>&1; then
   echo "ERROR: 'codex' CLI not found in PATH. Install it via: npm install -g @openai/codex" >&2
@@ -37,12 +41,23 @@ if [[ ! -f "$INPUT_FILE" ]] || [[ ! -s "$INPUT_FILE" ]]; then
   exit 2
 fi
 
+CLEANUP_TMP_OUT=0
 if [[ -n "$OUTPUT_FILE" ]]; then
   mkdir -p "$(dirname "$OUTPUT_FILE")"
-  OUT_FLAGS=(-o "$OUTPUT_FILE")
+  LOG_FILE="${OUTPUT_FILE%.*}.log"
 else
-  OUT_FLAGS=()
+  OUTPUT_FILE="$(mktemp "${TMPDIR:-/tmp}/codex-last-message.XXXXXX.md")"
+  LOG_FILE="${OUTPUT_FILE%.md}.log"
+  CLEANUP_TMP_OUT=1
 fi
+OUT_FLAGS=(-o "$OUTPUT_FILE")
+
+cleanup() {
+  if [[ "$CLEANUP_TMP_OUT" -eq 1 ]]; then
+    rm -f "$OUTPUT_FILE"
+  fi
+}
+trap cleanup EXIT
 
 cd "$WORKSPACE_DIR"
 
@@ -59,41 +74,61 @@ else
   APPROVAL_FLAGS=(--full-auto)
 fi
 
+run_codex_cmd() {
+  local exit_code=0
+  if [[ "$VERBOSE" == "1" ]]; then
+    "$@" || exit_code=$?
+  else
+    "$@" >"$LOG_FILE" 2>&1 || exit_code=$?
+  fi
+
+  if [[ "$exit_code" -ne 0 ]]; then
+    echo "" >&2
+    echo "ERROR: codex exited with code $exit_code." >&2
+    if [[ "$VERBOSE" != "1" ]] && [[ -f "$LOG_FILE" ]]; then
+      echo "Full process log: $LOG_FILE" >&2
+      echo "--- Last 60 lines of log ---" >&2
+      tail -n 60 "$LOG_FILE" >&2 || true
+      echo "----------------------------" >&2
+    fi
+    echo "Hint: If this is an authentication error, run 'codex login' in your terminal once to sign in." >&2
+    exit "$exit_code"
+  fi
+
+  if [[ "$VERBOSE" != "1" ]]; then
+    echo "==> [Codex Engineer] Completed cleanly. Full process log: $LOG_FILE"
+    if [[ -s "$OUTPUT_FILE" ]]; then
+      echo ""
+      echo "=== Codex Final Summary ==="
+      cat "$OUTPUT_FILE"
+    fi
+  fi
+}
+
 case "$MODE" in
   execute)
-    PROMPT_HEADER="You are the Principal Software Engineer in a Gemini (Product & Architecture) + Codex (Engineering) workflow. <stdin> contains the user-approved specification defining the goal, UX/business behavior, edge cases, scope boundaries, and acceptance criteria inside $(pwd). You own the 'How': inspect the relevant code, design clean and idiomatic engineering implementations matching existing codebase conventions, and strictly respect scope boundaries. Before finishing, run the relevant build, typecheck, lint, and test commands yourself inside the workspace and fix any failures on the spot so you deliver working, verified code in one pass. End with a concise technical summary of files changed and verification commands executed."
+    PROMPT_HEADER="You are the Principal Software Engineer in a Google Antigravity + OpenAI Codex workflow. <stdin> contains the user-approved specification defining the goal, UX/business behavior, edge cases, scope boundaries, and acceptance criteria inside $(pwd). You own the 'How': inspect the relevant code, design clean and idiomatic engineering implementations matching existing codebase conventions, and strictly respect scope boundaries. Keep command outputs concise: never dump full large files or raw multi-hundred-line logs to stdout; prefer targeted line ranges or summarized checks. Before finishing, run the relevant build, typecheck, lint, and test commands yourself inside the workspace and fix any failures on the spot so you deliver working, verified code in one pass. End with a concise technical summary of files changed and verification commands executed."
     echo "==> [Codex Engineer] Starting implementation & self-test in: $WORKSPACE_DIR"
     echo "==> [Codex Engineer] Spec file: $INPUT_FILE"
-    if ! codex exec \
+    run_codex_cmd codex exec \
       "${APPROVAL_FLAGS[@]}" \
       --color never \
       ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
       ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
-      "$PROMPT_HEADER" < "$INPUT_FILE"; then
-      EXIT_CODE=$?
-      echo "" >&2
-      echo "ERROR: 'codex exec' exited with code $EXIT_CODE." >&2
-      echo "Hint: If this is an authentication error, run 'codex login' in your terminal once to sign in." >&2
-      exit "$EXIT_CODE"
-    fi
+      "$PROMPT_HEADER" < "$INPUT_FILE"
     ;;
 
   resume)
     echo "==> [Codex Engineer] Resuming latest Codex session in: $WORKSPACE_DIR"
     echo "==> [Codex Engineer] Follow-up review feedback: $INPUT_FILE"
-    if ! codex exec \
+    run_codex_cmd codex exec \
       "${APPROVAL_FLAGS[@]}" \
       --color never \
       resume \
       --last \
       ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
       ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
-      - < "$INPUT_FILE"; then
-      EXIT_CODE=$?
-      echo "" >&2
-      echo "ERROR: 'codex exec resume --last' exited with code $EXIT_CODE." >&2
-      exit "$EXIT_CODE"
-    fi
+      - < "$INPUT_FILE"
     ;;
 
   *)
