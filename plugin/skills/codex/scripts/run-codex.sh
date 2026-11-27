@@ -33,6 +33,7 @@ Environment variables (overridden by CLI flags):
   CODEX_TIER        Override service_tier (priority | default | flex | fast)
   CODEX_ISOLATE=0   Disable --ignore-user-config whitelist isolation (load full desktop config.toml)
   CODEX_VERBOSE=1   Stream full codex process output to stdout instead of quiet log-summary mode.
+  CODEX_AUTO_QUIT_ON_LOCK=0  Disable auto-closing Codex Desktop App when resume hits 'already has an active writer'.
 EOF
   exit 2
 }
@@ -1085,26 +1086,65 @@ if [[ ${#SCHEMA_FLAGS[@]} -gt 0 ]]; then
   OVERRIDE_DESC+=("schema=on")
 fi
 
+release_codex_app_lock() {
+  if [[ -n "${CODEX_RELEASE_LOCK_CMD:-}" ]]; then
+    eval "$CODEX_RELEASE_LOCK_CMD" || true
+    return 0
+  fi
+  case "$(uname -s 2>/dev/null || echo unknown)" in
+    Darwin)
+      osascript -e 'if application "Codex" is running then tell application "Codex" to quit' >/dev/null 2>&1 || true
+      osascript -e 'if application "ChatGPT" is running then tell application "ChatGPT" to quit' >/dev/null 2>&1 || true
+      local waited=0
+      while [[ "$waited" -lt 12 ]]; do
+        if ! pgrep -f 'codex.*app-server' >/dev/null 2>&1; then
+          break
+        fi
+        sleep 0.5
+        waited=$((waited + 1))
+      done
+      ;;
+    Linux)
+      pkill -TERM -f 'codex.*app-server' >/dev/null 2>&1 || true
+      sleep 1
+      ;;
+  esac
+}
+
 run_codex_cmd() {
   local exit_code=0
   local start_ts end_ts elapsed_s
+  local attempt=1
   start_ts="$(date +%s)"
-  if [[ "$USE_JSON_EVENTS" -eq 1 ]]; then
-    if [[ "$VERBOSE" == "1" ]]; then
-      "$@" 2>"$LOG_FILE" | tee "$EVENTS_FILE" || exit_code=${PIPESTATUS[0]}
-      if [[ -s "$LOG_FILE" ]]; then
-        cat "$LOG_FILE" >&2
+  while true; do
+    exit_code=0
+    if [[ "$USE_JSON_EVENTS" -eq 1 ]]; then
+      if [[ "$VERBOSE" == "1" ]]; then
+        "$@" 2>"$LOG_FILE" | tee "$EVENTS_FILE" || exit_code=${PIPESTATUS[0]}
+        if [[ -s "$LOG_FILE" ]]; then
+          cat "$LOG_FILE" >&2
+        fi
+      else
+        "$@" >"$EVENTS_FILE" 2>"$LOG_FILE" || exit_code=$?
       fi
     else
-      "$@" >"$EVENTS_FILE" 2>"$LOG_FILE" || exit_code=$?
+      if [[ "$VERBOSE" == "1" ]]; then
+        "$@" 2>&1 | tee "$LOG_FILE" || exit_code=${PIPESTATUS[0]}
+      else
+        "$@" >"$LOG_FILE" 2>&1 || exit_code=$?
+      fi
     fi
-  else
-    if [[ "$VERBOSE" == "1" ]]; then
-      "$@" 2>&1 | tee "$LOG_FILE" || exit_code=${PIPESTATUS[0]}
-    else
-      "$@" >"$LOG_FILE" 2>&1 || exit_code=$?
+
+    if [[ "$exit_code" -ne 0 ]] && [[ "$MODE" == "resume" ]] && [[ "$attempt" -eq 1 ]] && [[ "${CODEX_AUTO_QUIT_ON_LOCK:-1}" != "0" ]]; then
+      if grep -qi "already has an active writer" "$LOG_FILE" "$EVENTS_FILE" 2>/dev/null; then
+        echo "==> [Codex Engineer] Thread is locked by Codex Desktop App ('already has an active writer'). Closing Codex App gracefully and retrying resume..." >&2
+        release_codex_app_lock
+        attempt=2
+        continue
+      fi
     fi
-  fi
+    break
+  done
   end_ts="$(date +%s)"
   elapsed_s=$((end_ts - start_ts))
 

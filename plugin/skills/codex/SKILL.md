@@ -38,7 +38,7 @@ description: >-
      - `(Recommended) 新建对话`
      - 将查到的最近 Codex 对话逐条列出，直接展示 `<对话名> · <时间>`（例如 `iKuuu · 11-27 21:38`，**不要**每条都重复写“继续老会话：”）；用户选某条老会话时：
        1. **先让 Antigravity 真正承接上下文**：立刻运行 `run-codex.sh show-session <session_id> --turns 10` 只读提取该条 Codex 老对话最近 10 条纯净用户/助手对话（自动过滤系统提示与冗长工具日志），让 Antigravity 在 Phase 1 规划前完整了解之前聊过的内容；
-       2. **Phase 3 默认使用 `resume --session <id>` 原位续聊**（切回 Codex App 可直接在该对话中看到新增回合；仅当用户明确要求“分叉 / 不要改原对话”时才使用 `fork --session <id>`）。
+       2. **Phase 3 默认使用 `resume --session <id>` 原位续聊**（切回 Codex App 可直接在该对话中看到新增回合；若原会话被 Codex Desktop App 后台锁占用而报 `already has an active writer`，`run-codex.sh` 会自动优雅关闭 Codex App 释放写锁并自动重试原位续聊，无需人工干预；仅当用户明确要求“分叉 / 不要改原对话”时才使用 `fork --session <id>`）。
 3. 记住用户的选择（选“沿用本机默认配置”的项在 Phase 3 中不传覆盖参数，直接沿用 `~/.codex/config.toml`）。每次 `run-codex.sh` 执行后会自动静默刷新下方快照。
 
 <!-- CODEX_LIVE_OPTIONS_START -->

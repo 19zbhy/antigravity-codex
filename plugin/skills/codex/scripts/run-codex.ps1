@@ -868,27 +868,56 @@ try {
   }
 
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
-  if ($useJsonEvents) {
-    if ($verbose) {
-      $stdinContent | & codex @argsList 2>$logFile | Tee-Object -FilePath $eventsFile
-      $exitCode = $LASTEXITCODE
-      if ((Test-Path -LiteralPath $logFile) -and ((Get-Item -LiteralPath $logFile).Length -gt 0)) {
-        Get-Content -LiteralPath $logFile -Encoding UTF8 | ForEach-Object { [Console]::Error.WriteLine($_) }
+  $attempt = 1
+  while ($true) {
+    if ($useJsonEvents) {
+      if ($verbose) {
+        $stdinContent | & codex @argsList 2>$logFile | Tee-Object -FilePath $eventsFile
+        $exitCode = $LASTEXITCODE
+        if ((Test-Path -LiteralPath $logFile) -and ((Get-Item -LiteralPath $logFile).Length -gt 0)) {
+          Get-Content -LiteralPath $logFile -Encoding UTF8 | ForEach-Object { [Console]::Error.WriteLine($_) }
+        }
+      } else {
+        $stdinContent | & codex @argsList 1>$eventsFile 2>$logFile
+        $exitCode = $LASTEXITCODE
       }
+      $capturedSid = Get-SessionIdFromJsonl $eventsFile
     } else {
-      $stdinContent | & codex @argsList 1>$eventsFile 2>$logFile
-      $exitCode = $LASTEXITCODE
+      if ($verbose) {
+        $stdinContent | & codex @argsList 2>&1 | Tee-Object -FilePath $logFile
+        $exitCode = $LASTEXITCODE
+      } else {
+        $stdinContent | & codex @argsList *> $logFile
+        $exitCode = $LASTEXITCODE
+      }
+      $capturedSid = Get-SessionIdFromText $logFile
     }
-    $capturedSid = Get-SessionIdFromJsonl $eventsFile
-  } else {
-    if ($verbose) {
-      $stdinContent | & codex @argsList 2>&1 | Tee-Object -FilePath $logFile
-      $exitCode = $LASTEXITCODE
-    } else {
-      $stdinContent | & codex @argsList *> $logFile
-      $exitCode = $LASTEXITCODE
+
+    if (($exitCode -ne 0) -and ($Mode -eq "resume") -and ($attempt -eq 1) -and ($env:CODEX_AUTO_QUIT_ON_LOCK -ne "0")) {
+      $lockHit = $false
+      foreach ($lf in @($logFile, $eventsFile)) {
+        if ((Test-Path -LiteralPath $lf) -and ((Get-Content -LiteralPath $lf -Raw -Encoding UTF8 -ErrorAction SilentlyContinue) -match "already has an active writer")) {
+          $lockHit = $true
+          break
+        }
+      }
+      if ($lockHit) {
+        [Console]::Error.WriteLine("==> [Codex Engineer] Thread is locked by Codex Desktop App ('already has an active writer'). Closing Codex App gracefully and retrying resume...")
+        if (-not [string]::IsNullOrWhiteSpace($env:CODEX_RELEASE_LOCK_CMD)) {
+          Invoke-Expression $env:CODEX_RELEASE_LOCK_CMD
+        } else {
+          foreach ($procName in @("Codex", "ChatGPT")) {
+            Get-Process -Name $procName -ErrorAction SilentlyContinue | ForEach-Object {
+              try { $_.CloseMainWindow() | Out-Null } catch {}
+            }
+          }
+          Start-Sleep -Seconds 2
+        }
+        $attempt = 2
+        continue
+      }
     }
-    $capturedSid = Get-SessionIdFromText $logFile
+    break
   }
   $sw.Stop()
   $elapsedS = [int][Math]::Floor($sw.Elapsed.TotalSeconds)
