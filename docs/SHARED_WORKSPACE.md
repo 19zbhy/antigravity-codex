@@ -58,7 +58,10 @@ Read-only query against `~/.codex/state_5.sqlite` (opened strictly with `?mode=r
 # List recent active Codex threads for a workspace
 ~/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh list-sessions /path/to/project --limit 10
 
-# Non-destructively fork an existing Codex thread into a new session inside /codex
+# Continue directly inside an existing Codex thread (default in /codex)
+~/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh resume /path/to/project /path/to/plan.md /path/to/out.md --session <thread_id>
+
+# Or non-destructively fork an existing Codex thread into a new session
 ~/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh fork /path/to/project /path/to/plan.md /path/to/out.md --session <thread_id>
 ```
 

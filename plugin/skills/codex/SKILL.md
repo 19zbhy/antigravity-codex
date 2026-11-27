@@ -27,7 +27,7 @@ description: >-
      2. 运行 `run-codex.sh list-sessions "<project_path>" --limit 8` 获取该项目在 Codex 中的最近活跃对话（已自动过滤内部 `codex-auto-review` 噪音）。
    - 紧接着调用 `ask_question` 弹出 1 个极简单选：
      - `(Recommended) 在该项目中开启全新对话任务（自动读取共享记忆与源码）`
-     - 将查到的最近 Codex 老对话逐条列出（格式：`接力老会话（分叉）：<标题> [<时间>]`）；用户选某条老会话时，Phase 3 默认使用无损 **`fork --session <id>`**（不污染 Codex 原对话；若用户明确要求原位续聊则用 `resume --session <id>`）。
+     - 将查到的最近 Codex 老对话逐条列出（格式：`继续老会话：<标题> [<时间>]`）；用户选某条老会话时，Phase 3 默认使用 **`resume --session <id>`** 原位续聊（切回 Codex App 可直接在该对话中看到新增回合；仅当用户明确要求“分叉 / 不要改原对话”时才使用 `fork --session <id>`）。
 3. 记住用户的选择（选“沿用本机默认配置”的项在 Phase 3 中不传覆盖参数，直接沿用 `~/.codex/config.toml`）。每次 `run-codex.sh` 执行后会自动静默刷新下方快照。
 
 <!-- CODEX_LIVE_OPTIONS_START -->
@@ -41,7 +41,7 @@ description: >-
 1. **严禁越权改代码 + 优先感知跨端共享上下文**：
    - 只用只读工具（`read_file`、搜索工具、只读命令）快速摸清相关代码结构、现有约定与可复用模块。
    - **共享项目状态感知**：若工作区存在 `AGENTS.md` 或 `.agents/state.md`，优先读取以了解独立 Codex 或历史会话刚刚做过的改动、遗留问题与约定；若当前环境已配置 `basic-memory` 等共享记忆 MCP，按需检索该项目的长期架构决策并浓缩进任务书。
-   - **老会话接力（按需）**：若用户明确希望从 Codex Desktop / CLI 的某条历史会话继续干活，可先调用 `run-codex.sh list-sessions /absolute/path/to/workspace` 只读列出该项目最近的 Codex 线程，并在 Phase 3 使用 `fork --session <id>`（推荐，不污染原对话）或 `resume --session <id>` 接力。
+   - **老会话接力（按需）**：若用户明确希望从 Codex Desktop / CLI 的某条历史会话继续干活，可先调用 `run-codex.sh list-sessions /absolute/path/to/workspace` 只读列出该项目最近的 Codex 线程，并在 Phase 3 默认使用 `resume --session <id>` 原位续聊（若用户希望不改动原对话则改用 `fork --session <id>`）。
 2. **发散思维前置与视觉分工（灵活判断）**：
    - **若需求开放、存在多种实现路径（如“快改轻量版 vs 高扩展重构版”）或发现潜在产品盲区**：先用通俗好懂的“人话”给出 2～3 个思路与利弊对比（必要时配合 `ask_question` 让用户一键选方向），帮用户打开思路、敲定大方向后再写方案卡片。
    - **若涉及前端视觉设计、配色布局或高清截图审阅**：优先由 Antigravity 直接与用户对齐视觉风格并完成审图，不要把大体积原图塞进 Codex 上下文；纯逻辑/工程模块再交由 Codex 实现。
