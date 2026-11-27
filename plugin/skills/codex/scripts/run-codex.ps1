@@ -209,14 +209,21 @@ function Get-CodexOptionsLines {
 
 function Sync-CodexOptionsIntoSkill {
   $scriptDir = Split-Path -Parent $PSCommandPath
-  $skillPath = Join-Path (Split-Path -Parent $scriptDir) "SKILL.md"
-  if (-not (Test-Path -LiteralPath $skillPath)) { return }
-  $content = Get-Content -LiteralPath $skillPath -Raw -Encoding UTF8
-  if ($content -notmatch "<!-- CODEX_LIVE_OPTIONS_START -->" -or $content -notmatch "<!-- CODEX_LIVE_OPTIONS_END -->") { return }
+  $skillDir = Split-Path -Parent $scriptDir
+  $pluginRoot = Split-Path -Parent (Split-Path -Parent $skillDir)
+  $targets = @(
+    (Join-Path $skillDir "SKILL.md"),
+    (Join-Path $pluginRoot "rules\AGENTS.md")
+  )
   $block = (Get-CodexOptionsLines) -join "`n"
   $replacement = "<!-- CODEX_LIVE_OPTIONS_START -->`n$block`n<!-- CODEX_LIVE_OPTIONS_END -->"
-  $updated = [regex]::Replace($content, "<!-- CODEX_LIVE_OPTIONS_START -->[\s\S]*?<!-- CODEX_LIVE_OPTIONS_END -->", [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $replacement })
-  [System.IO.File]::WriteAllText($skillPath, $updated, [System.Text.UTF8Encoding]::new($false))
+  foreach ($targetPath in $targets) {
+    if (-not (Test-Path -LiteralPath $targetPath)) { continue }
+    $content = Get-Content -LiteralPath $targetPath -Raw -Encoding UTF8
+    if ($content -notmatch "<!-- CODEX_LIVE_OPTIONS_START -->" -or $content -notmatch "<!-- CODEX_LIVE_OPTIONS_END -->") { continue }
+    $updated = [regex]::Replace($content, "<!-- CODEX_LIVE_OPTIONS_START -->[\s\S]*?<!-- CODEX_LIVE_OPTIONS_END -->", [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $replacement })
+    [System.IO.File]::WriteAllText($targetPath, $updated, [System.Text.UTF8Encoding]::new($false))
+  }
 }
 
 if ($Mode -eq "doctor") {

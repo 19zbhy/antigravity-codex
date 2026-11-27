@@ -6,6 +6,7 @@ export PATH="${PATH}:/opt/homebrew/bin:/usr/local/bin:${HOME}/.npm-global/bin:/A
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_MD_PATH="${SCRIPT_DIR}/../SKILL.md"
+RULES_MD_PATH="${SCRIPT_DIR}/../../../rules/AGENTS.md"
 CODEX_DIR="${CODEX_HOME:-${HOME}/.codex}"
 CONFIG_FILE="${CODEX_DIR}/config.toml"
 CACHE_FILE="${CODEX_DIR}/models_cache.json"
@@ -534,7 +535,12 @@ if [[ "$MODE" == "list-options" ]]; then
 fi
 
 if [[ "$MODE" == "sync-options" ]]; then
-  sync_options_into_skill "${1:-$SKILL_MD_PATH}"
+  if [[ $# -ge 1 ]]; then
+    sync_options_into_skill "$1"
+  else
+    sync_options_into_skill "$SKILL_MD_PATH"
+    sync_options_into_skill "$RULES_MD_PATH"
+  fi
   exit 0
 fi
 
@@ -1096,8 +1102,9 @@ run_codex_cmd() {
     printf '%s\n' "$captured_sid" > "$SESSION_FILE"
   fi
 
-  # Silently refresh embedded live model catalog in SKILL.md for instant next-turn picker
+  # Silently refresh embedded live model & project catalog in SKILL.md and rules/AGENTS.md
   sync_options_into_skill "$SKILL_MD_PATH" 2>/dev/null || true
+  sync_options_into_skill "$RULES_MD_PATH" 2>/dev/null || true
 
   if [[ "$exit_code" -ne 0 ]]; then
     echo "" >&2

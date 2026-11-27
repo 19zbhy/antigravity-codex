@@ -224,9 +224,12 @@ respect_system_proxy = true
   New-Item -ItemType Directory -Path $fakeHome -Force | Out-Null
   & $installer -TargetHome $fakeHome | Out-Null
   $installedSkill = Get-Content -LiteralPath (Join-Path $fakeHome ".gemini\config\plugins\codex-collaborator\skills\codex\SKILL.md") -Raw
+  $installedRules = Get-Content -LiteralPath (Join-Path $fakeHome ".gemini\config\plugins\codex-collaborator\rules\AGENTS.md") -Raw
   Assert-NotContains "no <USER_HOME> placeholder left" "<USER_HOME>" $installedSkill
   Assert-Contains "switched to run-codex.ps1" "run-codex.ps1" $installedSkill
   Assert-Contains "synced live model cache" "gpt-6.2-sol (GPT-6.2-Sol)" $installedSkill
+  Assert-NotContains "no <USER_HOME> left in rules/AGENTS.md" "<USER_HOME>" $installedRules
+  Assert-Contains "synced live options into rules/AGENTS.md" "gpt-6.2-sol (GPT-6.2-Sol)" $installedRules
 
   Write-Output "=== Test 6: Shared workspace (init-shared & fork) ==="
   $sharedWs = Join-Path $tmpRoot "shared_ws"

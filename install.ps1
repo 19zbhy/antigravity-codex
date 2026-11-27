@@ -59,6 +59,13 @@ $skillContent = $skillContent.Replace("``--model`` / ``--effort`` / ``--tier``",
 
 [System.IO.File]::WriteAllText($skillFile, $skillContent, [System.Text.UTF8Encoding]::new($false))
 
+# Patch rules/AGENTS.md placeholder as well (used for 1-turn /codex instant picker preload)
+$rulesFile = Join-Path $destPluginDir "rules\AGENTS.md"
+if (Test-Path -LiteralPath $rulesFile) {
+  $rulesContent = (Get-Content -LiteralPath $rulesFile -Raw -Encoding UTF8).Replace("<USER_HOME>", $TargetHome)
+  [System.IO.File]::WriteAllText($rulesFile, $rulesContent, [System.Text.UTF8Encoding]::new($false))
+}
+
 # Sync live Codex model catalog into SKILL.md for instant picker popups
 try {
   & $psExe -NoProfile -ExecutionPolicy Bypass -File $runnerPath sync-options | Out-Null

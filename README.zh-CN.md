@@ -28,7 +28,7 @@
 
 一套为 **Google Antigravity** 打造的轻量、零依赖原生插件，将 **Antigravity** 与 **Codex CLI** 的各自长板结合起来——并且**只在你输入 `/codex` 时按需触发**：
 
-- **平时零侵入**：刻意不写全局 `rules/AGENTS.md`，仅通过 `skills/codex` 按需加载。日常问答和小改动依然由 Antigravity 原生完成，不污染上下文。
+- **按需触发 + 1 轮秒弹点选卡片**：日常问答和小改动依然由 Antigravity 原生完成；内置极轻量（约 150 tokens）仅对 `/codex` 生效的 `rules/AGENTS.md` 预热快照，输入 `/codex` 时在第 1 轮并行加载 `SKILL.md` 并弹出精简 2 题选择器（Codex 项目 + 模型档位），将启动延迟直接砍半。
 - **深度原生 UI 门禁**：调用 Antigravity 原生 `implementation_plan.md` 方案卡片（`RequestFeedback: true`），渲染可点击的 **Proceed** 按钮并支持划词批注微调，未拍板前严禁修改一行代码。
 - **清晰的职责分工（`Why & What` vs. `How`）**：
   - **Antigravity（需求分析 + 终审把关）**：负责发散思维探路、输出抓大放小的“人话”任务书、划定边缘防坑清单与红线边界、独立复核 `git diff` 并用人话汇报。

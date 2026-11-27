@@ -10,17 +10,17 @@ description: >-
 
 ---
 
-## Phase 0：极速弹出项目与 Codex 运行档位选择
+## Phase 0：1 轮秒弹项目与 Codex 模型选择
 
-1. **零额外工具轮次、秒弹第 1 张选择卡片**：
-   - 直接读取下方由安装脚本与 `run-codex.sh` 自动同步好的本机实时快照（含 Codex 项目列表、可用模型与推理强度；**不要在弹卡片前额外跑终端或读 `config.toml`**；仅当下方快照显示 `(not synced yet)` 时，才先跑一次 `run-codex.sh sync-options`）。
-   - 若用户已在 `/codex` 消息中显式指定了所有运行参数且未要求选项目，可跳过对应问题；否则**立即调用 `ask_question`** 一次性弹出以下单选问题（每题第一项均为 `(Recommended)` 默认项）：
+1. **1 轮秒弹精简选择卡片（若已在第 1 轮通过 `rules/AGENTS.md` 预热弹出，直接承接用户选择，勿重复弹卡片）**：
+   - 直接读取下方由安装脚本与 `run-codex.sh` 自动同步好的本机实时快照（**不要在弹卡片前额外跑终端或读 `config.toml`**；仅当下方快照为 `- (not synced yet)` 时，才先跑一次 `run-codex.sh sync-options`）。
+   - 若用户尚未选择且未在 `/codex` 消息中显式指定全部参数，立即调用 `ask_question` 弹出精简 2 题单选（减少输出耗时）：
      - **问题 1（进入哪个 Codex 项目）**（仅当下方快照存在 `- projects:` 时展示）：
        - `(Recommended) 不进入 Codex 项目（使用当前工作区）`
-       - 将快照中 `- projects:` 列出的全部 Codex 项目按顺序展示（格式：`项目名（路径）`，用户无需自己记项目路径）。
-     - **问题 2（Codex 模型）**：`(Recommended) 沿用本机默认配置（当前：<default_model>）` + 快照中的全部可用模型。
-     - **问题 3（推理强度 `model_reasoning_effort`）**：`(Recommended) 沿用本机默认配置（当前：<default_effort>）` + 快照中的全部 `efforts`。
-     - **问题 4（服务档位 `service_tier`）**：`(Recommended) 沿用本机默认配置（当前：<default_tier>）` + `priority（快速模式 / Fast）`、`default（标准模式）`、`flex（弹性省流模式）`。
+       - 快照中 `- projects:` 的全部 Codex 项目（格式：`项目名（路径）`）。
+     - **问题 2（Codex 模型与档位）**：
+       - `(Recommended) 沿用本机默认（<default_model> · <default_effort> · <default_tier>）`
+       - 快照中 `- models:` 的前 5 个最新模型（若用户要调整 `effort`、`tier` 或使用其他模型，可点「其他」或直接在消息中说明，例如 `--effort high --tier flex`）。
 2. **若用户选择了某个 Codex 项目（自动进入双端共享 + 可选接力老会话）**：
    - 将该项目路径作为本次任务的 `<workspace_dir>`，并立刻执行两步轻量准备：
      1. 若该项目尚未存在 `.agents/state.md`，自动运行 `run-codex.sh init-shared "<project_path>" --exclude-state` **无感开启双端共享状态**；

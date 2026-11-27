@@ -28,7 +28,7 @@
 
 A lightweight, zero-dependency native plugin for **Google Antigravity** that pairs **Antigravity** and **Codex CLI** using their complementary strengths — **only when you type `/codex`**:
 
-- **Zero Intrusion by Default**: Ships with `skills/codex` only (no global `rules/AGENTS.md`). Everyday chats and small edits stay 100% native Antigravity with zero context bloat.
+- **On-Demand `/codex` with 1-Turn Instant Picker**: Everyday chats stay 100% native Antigravity. A tiny (~150-token) `/codex`-scoped `rules/AGENTS.md` preloads your local Codex project & model snapshot so typing `/codex` opens the compact 2-question selector in a **single turn** (in parallel with loading `SKILL.md`), cutting startup latency in half.
 - **Native Antigravity Approval UI**: Uses Antigravity's native `implementation_plan.md` artifact (`RequestFeedback: true`) to render an interactive **Proceed** button and inline commenting before a single line of code is touched.
 - **Clear Separation of Responsibilities (`Why & What` vs. `How`)**:
   - **Antigravity (Architecture & Final Review)** owns divergent brainstorming, human-readable specs, edge-case guardrails, scope boundaries, and final diff review.

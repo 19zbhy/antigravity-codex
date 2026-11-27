@@ -28,18 +28,21 @@ rm -rf "${DEST_PLUGIN_DIR}/rules" "${DEST_PLUGIN_DIR}/skills/codex-executor"
 # Copy plugin bundle files
 cp -R "${SRC_PLUGIN_DIR}/." "$DEST_PLUGIN_DIR/"
 
-# Replace <USER_HOME> placeholder with literal absolute path in SKILL.md
-SKILL_FILE="${DEST_PLUGIN_DIR}/skills/codex/SKILL.md"
+# Replace <USER_HOME> placeholder with literal absolute path in SKILL.md and rules/AGENTS.md
 ESCAPED_HOME="$(printf '%s\n' "$USER_HOME" | sed 's/[&/\]/\\&/g')"
-TMP_SKILL="${SKILL_FILE}.tmp"
-sed "s|<USER_HOME>|${ESCAPED_HOME}|g" "$SKILL_FILE" > "$TMP_SKILL"
-mv "$TMP_SKILL" "$SKILL_FILE"
+for TARGET_MD in "${DEST_PLUGIN_DIR}/skills/codex/SKILL.md" "${DEST_PLUGIN_DIR}/rules/AGENTS.md"; do
+  if [[ -f "$TARGET_MD" ]]; then
+    TMP_MD="${TARGET_MD}.tmp"
+    sed "s|<USER_HOME>|${ESCAPED_HOME}|g" "$TARGET_MD" > "$TMP_MD"
+    mv "$TMP_MD" "$TARGET_MD"
+  fi
+done
 
-# Make runner script executable, verify syntax, and sync live Codex model catalog into SKILL.md
+# Make runner script executable, verify syntax, and sync live Codex model & project catalog
 RUNNER_SCRIPT="${DEST_PLUGIN_DIR}/skills/codex/scripts/run-codex.sh"
 chmod +x "$RUNNER_SCRIPT"
 bash -n "$RUNNER_SCRIPT"
-"$RUNNER_SCRIPT" sync-options "$SKILL_FILE" || true
+"$RUNNER_SCRIPT" sync-options || true
 
 echo "==> Plugin files installed and validated successfully!"
 echo ""
