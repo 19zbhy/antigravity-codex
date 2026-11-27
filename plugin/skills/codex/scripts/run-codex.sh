@@ -24,7 +24,7 @@ Usage:
   run-codex.sh cleanup-worktree <worktree_path> [--delete-branch] [--force]
   run-codex.sh execute <workspace_dir> <plan_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--worktree] [--structured | --schema <file>] [--no-isolate] [--verbose]
   run-codex.sh review  <workspace_dir> <spec_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--structured | --schema <file>] [--no-isolate] [--verbose]
-  run-codex.sh resume  <workspace_dir> <fix_file>  [output_last_message_file] [--session <id> | --last] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate] [--verbose]
+  run-codex.sh resume  <workspace_dir> <fix_file>  [output_last_message_file] [--session <id> | --last] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--quit-app-on-lock] [--no-isolate] [--verbose]
   run-codex.sh fork    <workspace_dir> <plan_file> [output_last_message_file] [--session <id>] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate] [--verbose]
 
 Environment variables (overridden by CLI flags):
@@ -33,7 +33,7 @@ Environment variables (overridden by CLI flags):
   CODEX_TIER        Override service_tier (priority | default | flex | fast)
   CODEX_ISOLATE=0   Disable --ignore-user-config whitelist isolation (load full desktop config.toml)
   CODEX_VERBOSE=1   Stream full codex process output to stdout instead of quiet log-summary mode.
-  CODEX_AUTO_QUIT_ON_LOCK=0  Disable auto-closing Codex Desktop App when resume hits 'already has an active writer'.
+  CODEX_QUIT_APP_ON_LOCK=1  Allow resume to gracefully close Codex Desktop App and retry once when hitting 'already has an active writer'.
 EOF
   exit 2
 }
@@ -875,6 +875,7 @@ ISOLATE="${CODEX_ISOLATE:-1}"
 USE_WORKTREE="0"
 USE_STRUCTURED="0"
 SCHEMA_FILE=""
+QUIT_APP_ON_LOCK="${CODEX_QUIT_APP_ON_LOCK:-0}"
 VERBOSE="${CODEX_VERBOSE:-0}"
 
 # Optional 4th positional argument: output_last_message_file (if not starting with --)
@@ -924,6 +925,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-isolate)
       ISOLATE="0"
+      shift
+      ;;
+    --quit-app-on-lock)
+      QUIT_APP_ON_LOCK="1"
       shift
       ;;
     --verbose)
@@ -1135,12 +1140,16 @@ run_codex_cmd() {
       fi
     fi
 
-    if [[ "$exit_code" -ne 0 ]] && [[ "$MODE" == "resume" ]] && [[ "$attempt" -eq 1 ]] && [[ "${CODEX_AUTO_QUIT_ON_LOCK:-1}" != "0" ]]; then
+    if [[ "$exit_code" -ne 0 ]] && [[ "$MODE" == "resume" ]] && [[ "$attempt" -eq 1 ]]; then
       if grep -qi "already has an active writer" "$LOG_FILE" "$EVENTS_FILE" 2>/dev/null; then
-        echo "==> [Codex Engineer] Thread is locked by Codex Desktop App ('already has an active writer'). Closing Codex App gracefully and retrying resume..." >&2
-        release_codex_app_lock
-        attempt=2
-        continue
+        if [[ "$QUIT_APP_ON_LOCK" == "1" ]]; then
+          echo "==> [Codex Engineer] Thread is locked by Codex Desktop App ('already has an active writer'). Closing Codex App gracefully and retrying resume..." >&2
+          release_codex_app_lock
+          attempt=2
+          continue
+        else
+          echo "HINT_THREAD_LOCKED: Thread is locked by Codex Desktop App ('already has an active writer'). Ask the user to confirm quitting Codex App (--quit-app-on-lock) or fall back to 'fork'." >&2
+        fi
       fi
     fi
     break

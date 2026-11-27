@@ -488,21 +488,21 @@ assert_contains "cleanup-worktree deletes merged branch" "Deleted branch: codex/
 assert_eq "linked worktree directory removed" "0" "$( [[ -d "$WT_LINKED" ]] && echo 1 || echo 0 )"
 assert_not_contains "merged branch removed from git" "codex/test-wt" "$(git -C "$WT_REPO" branch --list)"
 
-echo "=== Test 9: Auto-release Codex Desktop writer lock on resume ==="
+echo "=== Test 9: Opt-in release of Codex Desktop writer lock on resume ==="
 LOCK_FLAG="${TMP_ROOT}/active_writer.lock"
 touch "$LOCK_FLAG"
 LOCK_OUT="${TMP_ROOT}/lock_resume/last.md"
-LOCK_RES_OUT="$(MOCK_LOCK_FLAG_FILE="$LOCK_FLAG" CODEX_RELEASE_LOCK_CMD="rm -f '$LOCK_FLAG'" CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$SHARED_WS" "$PLAN_FILE" "$LOCK_OUT" --session "sess-active-1" 2>&1)"
-assert_contains "resume auto-retries after active writer lock" "Closing Codex App gracefully and retrying resume" "$LOCK_RES_OUT"
-assert_eq "lock flag cleared by release handler" "0" "$( [[ -f "$LOCK_FLAG" ]] && echo 1 || echo 0 )"
-
-touch "$LOCK_FLAG"
 set +e
-LOCK_OFF_OUT="$(MOCK_LOCK_FLAG_FILE="$LOCK_FLAG" CODEX_AUTO_QUIT_ON_LOCK=0 CODEX_RELEASE_LOCK_CMD="rm -f '$LOCK_FLAG'" CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$SHARED_WS" "$PLAN_FILE" "$LOCK_OUT" --session "sess-active-1" 2>&1)"
-LOCK_OFF_RC=$?
+LOCK_DEFAULT_OUT="$(MOCK_LOCK_FLAG_FILE="$LOCK_FLAG" CODEX_RELEASE_LOCK_CMD="rm -f '$LOCK_FLAG'" CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$SHARED_WS" "$PLAN_FILE" "$LOCK_OUT" --session "sess-active-1" 2>&1)"
+LOCK_DEFAULT_RC=$?
 set -e
-assert_eq "CODEX_AUTO_QUIT_ON_LOCK=0 does not retry" "1" "$LOCK_OFF_RC"
-assert_eq "lock flag untouched when auto-quit disabled" "1" "$( [[ -f "$LOCK_FLAG" ]] && echo 1 || echo 0 )"
+assert_eq "default resume fails closed without quitting Codex App" "1" "$LOCK_DEFAULT_RC"
+assert_contains "default resume prints HINT_THREAD_LOCKED" "HINT_THREAD_LOCKED" "$LOCK_DEFAULT_OUT"
+assert_eq "lock flag untouched without --quit-app-on-lock" "1" "$( [[ -f "$LOCK_FLAG" ]] && echo 1 || echo 0 )"
+
+LOCK_RES_OUT="$(MOCK_LOCK_FLAG_FILE="$LOCK_FLAG" CODEX_RELEASE_LOCK_CMD="rm -f '$LOCK_FLAG'" CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$SHARED_WS" "$PLAN_FILE" "$LOCK_OUT" --session "sess-active-1" --quit-app-on-lock 2>&1)"
+assert_contains "--quit-app-on-lock closes app and retries resume" "Closing Codex App gracefully and retrying resume" "$LOCK_RES_OUT"
+assert_eq "lock flag cleared when --quit-app-on-lock passed" "0" "$( [[ -f "$LOCK_FLAG" ]] && echo 1 || echo 0 )"
 
 echo ""
 echo "Summary: ${PASS_COUNT} passed, ${FAIL_COUNT} failed."

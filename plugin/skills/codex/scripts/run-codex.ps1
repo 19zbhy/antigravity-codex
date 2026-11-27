@@ -55,6 +55,7 @@ param(
   [switch]$Structured,
   [switch]$DeleteBranch,
   [switch]$Force,
+  [switch]$QuitAppOnLock,
   [switch]$NoIsolate,
   [switch]$Last,
   [switch]$VerboseOutput
@@ -893,7 +894,7 @@ try {
       $capturedSid = Get-SessionIdFromText $logFile
     }
 
-    if (($exitCode -ne 0) -and ($Mode -eq "resume") -and ($attempt -eq 1) -and ($env:CODEX_AUTO_QUIT_ON_LOCK -ne "0")) {
+    if (($exitCode -ne 0) -and ($Mode -eq "resume") -and ($attempt -eq 1)) {
       $lockHit = $false
       foreach ($lf in @($logFile, $eventsFile)) {
         if ((Test-Path -LiteralPath $lf) -and ((Get-Content -LiteralPath $lf -Raw -Encoding UTF8 -ErrorAction SilentlyContinue) -match "already has an active writer")) {
@@ -902,19 +903,24 @@ try {
         }
       }
       if ($lockHit) {
-        [Console]::Error.WriteLine("==> [Codex Engineer] Thread is locked by Codex Desktop App ('already has an active writer'). Closing Codex App gracefully and retrying resume...")
-        if (-not [string]::IsNullOrWhiteSpace($env:CODEX_RELEASE_LOCK_CMD)) {
-          Invoke-Expression $env:CODEX_RELEASE_LOCK_CMD
-        } else {
-          foreach ($procName in @("Codex", "ChatGPT")) {
-            Get-Process -Name $procName -ErrorAction SilentlyContinue | ForEach-Object {
-              try { $_.CloseMainWindow() | Out-Null } catch {}
+        $allowQuit = $QuitAppOnLock -or ($env:CODEX_QUIT_APP_ON_LOCK -eq "1")
+        if ($allowQuit) {
+          [Console]::Error.WriteLine("==> [Codex Engineer] Thread is locked by Codex Desktop App ('already has an active writer'). Closing Codex App gracefully and retrying resume...")
+          if (-not [string]::IsNullOrWhiteSpace($env:CODEX_RELEASE_LOCK_CMD)) {
+            Invoke-Expression $env:CODEX_RELEASE_LOCK_CMD
+          } else {
+            foreach ($procName in @("Codex", "ChatGPT")) {
+              Get-Process -Name $procName -ErrorAction SilentlyContinue | ForEach-Object {
+                try { $_.CloseMainWindow() | Out-Null } catch {}
+              }
             }
+            Start-Sleep -Seconds 2
           }
-          Start-Sleep -Seconds 2
+          $attempt = 2
+          continue
+        } else {
+          [Console]::Error.WriteLine("HINT_THREAD_LOCKED: Thread is locked by Codex Desktop App ('already has an active writer'). Ask the user to confirm quitting Codex App (-QuitAppOnLock) or fall back to 'fork'.")
         }
-        $attempt = 2
-        continue
       }
     }
     break
