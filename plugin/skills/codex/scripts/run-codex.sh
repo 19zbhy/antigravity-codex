@@ -89,36 +89,82 @@ has_toml_feature_true() {
   ' "$file"
 }
 
-# Extract the authoritative Codex session ID from the log:
-# 1) Prefer the FIRST JSONL thread.started event line: {"type":"thread.started","thread_id":"..."}
-# 2) Fallback: FIRST standalone header line: ^session id: <uuid>$
-# Never lets inspected file contents or later log lines overwrite the real session ID.
-extract_session_id() {
+# Extract session ID strictly from structured JSONL stdout (--json mode):
+# Only inspects top-level JSON objects with type == "thread.started" and returns the FIRST match.
+extract_session_id_from_jsonl() {
+  local events_file="$1"
+  if [[ ! -f "$events_file" ]] || [[ ! -s "$events_file" ]]; then
+    return 0
+  fi
+  if command -v jq >/dev/null 2>&1; then
+    jq -Rr 'fromjson? | select(type == "object" and .type == "thread.started" and (.thread_id | type == "string") and (.thread_id | length >= 8)) | .thread_id' "$events_file" 2>/dev/null | head -n 1 || true
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 - "$events_file" <<'PY'
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8", errors="replace") as f:
+    for line in f:
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            obj = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(obj, dict) and obj.get("type") == "thread.started":
+            tid = obj.get("thread_id")
+            if isinstance(tid, str) and len(tid) >= 8:
+                print(tid)
+                break
+PY
+  elif command -v node >/dev/null 2>&1; then
+    node -e '
+const fs = require("fs");
+for (const raw of fs.readFileSync(process.argv[1], "utf8").split(/\r?\n/)) {
+  const line = raw.trim();
+  if (!line.startsWith("{")) continue;
+  try {
+    const obj = JSON.parse(line);
+    if (obj && typeof obj === "object" && obj.type === "thread.started" && typeof obj.thread_id === "string" && obj.thread_id.length >= 8) {
+      console.log(obj.thread_id);
+      process.exit(0);
+    }
+  } catch (_) {}
+}
+' "$events_file"
+  else
+    awk '
+      /^[[:space:]]*\{.*"type"[[:space:]]*:[[:space:]]*"thread\.started"/ {
+        if (match($0, /"thread_id"[[:space:]]*:[[:space:]]*"[0-9a-fA-F-]{8,}"/)) {
+          val = substr($0, RSTART, RLENGTH)
+          sub(/^"thread_id"[[:space:]]*:[[:space:]]*"/, "", val)
+          sub(/"$/, "", val)
+          print val
+          exit
+        }
+      }
+    ' "$events_file"
+  fi
+}
+
+# Legacy fallback (ONLY when codex CLI does not support --json):
+# Matches ONLY the FIRST standalone header line "^session id: <uuid>$" and stops immediately.
+# Never searches for JSON events inside mixed text logs.
+extract_session_id_from_text() {
   local log_file="$1"
-  if [[ ! -f "$log_file" ]]; then
+  if [[ ! -f "$log_file" ]] || [[ ! -s "$log_file" ]]; then
     return 0
   fi
   awk '
-    /^[[:space:]]*\{.*"type"[[:space:]]*:[[:space:]]*"thread\.started"/ {
-      if (match($0, /"thread_id"[[:space:]]*:[[:space:]]*"[0-9a-fA-F-]{8,}"/)) {
-        val = substr($0, RSTART, RLENGTH)
-        sub(/^"thread_id"[[:space:]]*:[[:space:]]*"/, "", val)
-        sub(/"$/, "", val)
-        print val
-        found = 1
-        exit
-      }
-    }
-    !found && fallback == "" {
+    {
       low = tolower($0)
       if (low ~ /^[[:space:]]*session id:[[:space:]]*[0-9a-f-]{8,}[[:space:]]*$/) {
         val = $0
         sub(/^[[:space:]]*[Ss][Ee][Ss][Ss][Ii][Oo][Nn] [Ii][Dd]:[[:space:]]*/, "", val)
         sub(/[[:space:]]*$/, "", val)
-        fallback = val
+        print val
+        exit
       }
     }
-    END { if (!found && fallback != "") print fallback }
   ' "$log_file"
 }
 
@@ -326,11 +372,13 @@ TMP_RUN_DIR=""
 if [[ -n "$OUTPUT_FILE" ]]; then
   mkdir -p "$(dirname "$OUTPUT_FILE")"
   LOG_FILE="${OUTPUT_FILE%.*}.log"
+  EVENTS_FILE="${OUTPUT_FILE%.*}.events.jsonl"
   SESSION_FILE="${OUTPUT_FILE%.*}.session_id"
 else
   TMP_RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/codex-run.XXXXXX")"
   OUTPUT_FILE="${TMP_RUN_DIR}/last_message.md"
   LOG_FILE="${TMP_RUN_DIR}/last_message.log"
+  EVENTS_FILE="${TMP_RUN_DIR}/last_message.events.jsonl"
   SESSION_FILE="${TMP_RUN_DIR}/last_message.session_id"
 fi
 OUT_FLAGS=(-o "$OUTPUT_FILE")
@@ -346,6 +394,14 @@ else
 fi
 
 EXEC_HELP="$(codex exec --help 2>&1 || true)"
+
+# Enable structured JSONL event stream when supported so stdout (events) and stderr (diagnostics) stay separated
+USE_JSON_EVENTS=0
+JSON_FLAGS=()
+if echo "$EXEC_HELP" | grep -q -- '--json'; then
+  USE_JSON_EVENTS=1
+  JSON_FLAGS=(--json)
+fi
 
 # Approval / sandbox flags based on mode (--approve-for-me already implies workspace-write and conflicts with -s)
 if [[ "$MODE" == "review" ]]; then
@@ -416,15 +472,30 @@ fi
 
 run_codex_cmd() {
   local exit_code=0
-  if [[ "$VERBOSE" == "1" ]]; then
-    "$@" 2>&1 | tee "$LOG_FILE" || exit_code=${PIPESTATUS[0]}
+  if [[ "$USE_JSON_EVENTS" -eq 1 ]]; then
+    if [[ "$VERBOSE" == "1" ]]; then
+      "$@" 2>"$LOG_FILE" | tee "$EVENTS_FILE" || exit_code=${PIPESTATUS[0]}
+      if [[ -s "$LOG_FILE" ]]; then
+        cat "$LOG_FILE" >&2
+      fi
+    else
+      "$@" >"$EVENTS_FILE" 2>"$LOG_FILE" || exit_code=$?
+    fi
   else
-    "$@" >"$LOG_FILE" 2>&1 || exit_code=$?
+    if [[ "$VERBOSE" == "1" ]]; then
+      "$@" 2>&1 | tee "$LOG_FILE" || exit_code=${PIPESTATUS[0]}
+    else
+      "$@" >"$LOG_FILE" 2>&1 || exit_code=$?
+    fi
   fi
 
-  # Capture exact Codex session ID from log for deterministic resume
+  # Capture authoritative Codex session ID using the matching parser for the active output mode
   local captured_sid=""
-  captured_sid="$(extract_session_id "$LOG_FILE" || true)"
+  if [[ "$USE_JSON_EVENTS" -eq 1 ]]; then
+    captured_sid="$(extract_session_id_from_jsonl "$EVENTS_FILE" || true)"
+  else
+    captured_sid="$(extract_session_id_from_text "$LOG_FILE" || true)"
+  fi
   if [[ -n "$captured_sid" ]]; then
     printf '%s\n' "$captured_sid" > "$SESSION_FILE"
   fi
@@ -433,14 +504,18 @@ run_codex_cmd() {
   sync_options_into_skill "$SKILL_MD_PATH" 2>/dev/null || true
 
   if [[ "$exit_code" -ne 0 ]]; then
-    RUN_FAILED=1
     echo "" >&2
     echo "ERROR: codex exited with code $exit_code." >&2
-    if [[ "$VERBOSE" != "1" ]] && [[ -f "$LOG_FILE" ]]; then
+    if [[ "$VERBOSE" != "1" ]] && [[ -f "$LOG_FILE" ]] && [[ -s "$LOG_FILE" ]]; then
       echo "Full process log: $LOG_FILE" >&2
       echo "--- Last 60 lines of log ---" >&2
       tail -n 60 "$LOG_FILE" >&2 || true
       echo "----------------------------" >&2
+    elif [[ "$VERBOSE" != "1" ]] && [[ -f "$EVENTS_FILE" ]] && [[ -s "$EVENTS_FILE" ]]; then
+      echo "Event stream log: $EVENTS_FILE" >&2
+      echo "--- Last 30 lines of events ---" >&2
+      tail -n 30 "$EVENTS_FILE" >&2 || true
+      echo "-------------------------------" >&2
     fi
     echo "Hint: If this is an authentication error, run 'codex login' in your terminal once to sign in." >&2
     exit "$exit_code"
@@ -451,7 +526,11 @@ run_codex_cmd() {
   fi
 
   if [[ "$VERBOSE" != "1" ]]; then
-    echo "==> [Codex Engineer] Completed cleanly. Full process log: $LOG_FILE"
+    if [[ "$USE_JSON_EVENTS" -eq 1 ]]; then
+      echo "==> [Codex Engineer] Completed cleanly. Events: $EVENTS_FILE | Full process log: $LOG_FILE"
+    else
+      echo "==> [Codex Engineer] Completed cleanly. Full process log: $LOG_FILE"
+    fi
     if [[ -s "$OUTPUT_FILE" ]]; then
       echo ""
       echo "=== Codex Final Summary ==="
@@ -469,13 +548,14 @@ fi
 case "$MODE" in
   execute)
     # Reset stale artifacts so a new task can never inherit an older run's summary or session ID
-    rm -f "$OUTPUT_FILE" "$SESSION_FILE"
+    rm -f "$OUTPUT_FILE" "$SESSION_FILE" "$EVENTS_FILE"
     PROMPT_HEADER="You are the Principal Software Engineer in a Google Antigravity + OpenAI Codex workflow. <stdin> contains the user-approved specification defining the goal, UX/business behavior, edge cases, scope boundaries, and acceptance criteria inside $(pwd). You own the 'How': inspect the relevant code, design clean and idiomatic engineering implementations matching existing codebase conventions, and strictly respect scope boundaries. Keep command outputs concise: never dump full large files or raw multi-hundred-line logs to stdout; prefer targeted line ranges or summarized checks. Do not run git commit or git push. Before finishing, run the relevant build, typecheck, lint, and test commands yourself inside the workspace and fix any failures on the spot so you deliver working, verified code in one pass. End with a concise technical summary of files changed and verification commands executed."
     echo "==> [Codex Engineer] Starting implementation & self-test in: $WORKSPACE_DIR"
     echo "==> [Codex Engineer] Spec file: $INPUT_FILE"
     run_codex_cmd codex exec \
       "${APPROVAL_FLAGS[@]}" \
       --color never \
+      ${JSON_FLAGS[@]+"${JSON_FLAGS[@]}"} \
       ${ISOLATE_FLAGS[@]+"${ISOLATE_FLAGS[@]}"} \
       ${WORKTREE_FLAGS[@]+"${WORKTREE_FLAGS[@]}"} \
       ${OVERRIDE_FLAGS[@]+"${OVERRIDE_FLAGS[@]}"} \
@@ -486,13 +566,14 @@ case "$MODE" in
 
   review)
     # Reset stale artifacts from previous runs
-    rm -f "$OUTPUT_FILE" "$SESSION_FILE"
+    rm -f "$OUTPUT_FILE" "$SESSION_FILE" "$EVENTS_FILE"
     PROMPT_HEADER="You are a Principal Code Reviewer & Architecture Auditor in a Google Antigravity + OpenAI Codex workflow. You are running in strict read-only mode inside $(pwd) — do not attempt to modify any files. Read the audit scope in <stdin>, inspect the relevant source files or git diff concisely (never dump full large files to stdout), and report concrete findings grouped by severity (Critical / Warning / Suggestion) with exact file:line references and actionable recommendations."
     echo "==> [Codex Reviewer] Starting read-only audit in: $WORKSPACE_DIR"
     echo "==> [Codex Reviewer] Audit spec: $INPUT_FILE"
     run_codex_cmd codex exec \
       "${APPROVAL_FLAGS[@]}" \
       --color never \
+      ${JSON_FLAGS[@]+"${JSON_FLAGS[@]}"} \
       ${ISOLATE_FLAGS[@]+"${ISOLATE_FLAGS[@]}"} \
       ${OVERRIDE_FLAGS[@]+"${OVERRIDE_FLAGS[@]}"} \
       ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
@@ -529,8 +610,8 @@ case "$MODE" in
       exit 2
     fi
 
-    # Only reset stale summary AFTER resume target is validated
-    rm -f "$OUTPUT_FILE"
+    # Only reset stale summary/events AFTER resume target is validated
+    rm -f "$OUTPUT_FILE" "$EVENTS_FILE"
     echo "==> [Codex Engineer] Follow-up review feedback: $INPUT_FILE"
     if [[ "$RESUME_MODE" == "pinned" ]]; then
       echo "==> [Codex Engineer] Resuming pinned Codex session '${SESSION_ID}' in: $WORKSPACE_DIR"
@@ -538,6 +619,7 @@ case "$MODE" in
         "${APPROVAL_FLAGS[@]}" \
         --color never \
         resume \
+        ${JSON_FLAGS[@]+"${JSON_FLAGS[@]}"} \
         ${ISOLATE_FLAGS[@]+"${ISOLATE_FLAGS[@]}"} \
         ${OVERRIDE_FLAGS[@]+"${OVERRIDE_FLAGS[@]}"} \
         ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
@@ -551,6 +633,7 @@ case "$MODE" in
         --color never \
         resume \
         --last \
+        ${JSON_FLAGS[@]+"${JSON_FLAGS[@]}"} \
         ${ISOLATE_FLAGS[@]+"${ISOLATE_FLAGS[@]}"} \
         ${OVERRIDE_FLAGS[@]+"${OVERRIDE_FLAGS[@]}"} \
         ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \

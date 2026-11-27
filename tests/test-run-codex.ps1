@@ -69,21 +69,26 @@ if "%~1"=="exec" if "%~2"=="--help" (
   echo Usage: codex exec [OPTIONS] [PROMPT]
   echo   --approve-for-me
   echo   --ignore-user-config
+  if not "%MOCK_NO_JSON%"=="1" echo   --json
   if not "%MOCK_NO_WORKTREE%"=="1" echo   --worktree
   exit /b 0
 )
 echo %*>>"%MOCK_ARGS_LOG%"
 set "OUT_FILE="
+set "IS_JSON=0"
 set "PREV="
 for %%A in (%*) do (
   if "!PREV!"=="-o" set "OUT_FILE=%%~A"
+  if "%%~A"=="--json" set "IS_JSON=1"
   set "PREV=%%~A"
 )
+set "SID=11111111-2222-3333-4444-555555555555"
+if not "%MOCK_SESSION_ID%"=="" set "SID=%MOCK_SESSION_ID%"
 if not "%MOCK_NO_SESSION%"=="1" (
-  if not "%MOCK_SESSION_ID%"=="" (
-    echo session id: %MOCK_SESSION_ID%
+  if "!IS_JSON!"=="1" (
+    echo {"type":"thread.started","thread_id":"!SID!"}
   ) else (
-    echo session id: 11111111-2222-3333-4444-555555555555
+    echo session id: !SID!
   )
 )
 if not "%MOCK_EXTRA_LOG%"=="" (
@@ -181,13 +186,23 @@ respect_system_proxy = true
   Assert-Contains "-Session + -Last error message" "mutually exclusive" $mutexOut
   Assert-Contains "summary preserved on failed resume" "Keep this summary" (Get-Content -LiteralPath $pinnedOut -Raw)
 
-  # Mixed log does not overwrite real session ID
+  # JSON mode: spoofed thread.started in tool output does not overwrite real thread_id
   $mixedOut = Join-Path $tmpRoot "mixed\last.md"
   $env:MOCK_SESSION_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-  $env:MOCK_EXTRA_LOG = 'Example from inspected file: {"thread_id":"bbbbbbbb-cccc-dddd-eeee-ffffffffffff"}'
+  $env:MOCK_EXTRA_LOG = '{"type":"item.completed","item":{"aggregated_output":"thread.started bbbbbbbb-cccc-dddd-eeee-ffffffffffff"}}'
   & $runner execute $workspace $planFile $mixedOut | Out-Null
   $env:MOCK_EXTRA_LOG = ""
-  Assert-Eq "mixed log keeps authoritative session ID" "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" ((Get-Content -LiteralPath (Join-Path $tmpRoot "mixed\last.session_id") -Raw).Trim())
+  Assert-Eq "json mode keeps authoritative thread.started ID" "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" ((Get-Content -LiteralPath (Join-Path $tmpRoot "mixed\last.session_id") -Raw).Trim())
+
+  # Legacy non-json text mode: literal thread.started line does not overwrite session id header
+  $legacyOut = Join-Path $tmpRoot "legacy\last.md"
+  $env:MOCK_NO_JSON = "1"
+  $env:MOCK_SESSION_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+  $env:MOCK_EXTRA_LOG = '{"type":"thread.started","thread_id":"bbbbbbbb-cccc-dddd-eeee-ffffffffffff"}'
+  & $runner execute $workspace $planFile $legacyOut | Out-Null
+  $env:MOCK_NO_JSON = ""
+  $env:MOCK_EXTRA_LOG = ""
+  Assert-Eq "legacy text mode ignores spoofed thread.started JSON" "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" ((Get-Content -LiteralPath (Join-Path $tmpRoot "legacy\last.session_id") -Raw).Trim())
 
   Write-Output "=== Test 4: Strict read-only review ==="
   if (Test-Path $argsLog) { Remove-Item $argsLog -Force }

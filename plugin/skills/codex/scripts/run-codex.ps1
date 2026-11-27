@@ -82,18 +82,29 @@ function Test-TomlFeatureTrue([string]$Key, [string]$Path) {
   return $false
 }
 
-function Get-SessionIdFromLog([string]$LogPath) {
+function Get-SessionIdFromJsonl([string]$EventsPath) {
+  if (-not (Test-Path -LiteralPath $EventsPath)) { return "" }
+  foreach ($raw in (Get-Content -LiteralPath $EventsPath -Encoding UTF8)) {
+    $line = $raw.Trim()
+    if (-not $line.StartsWith("{")) { continue }
+    try {
+      $obj = $line | ConvertFrom-Json -ErrorAction Stop
+      if ($obj -and ($obj.type -eq "thread.started") -and ($obj.thread_id -is [string]) -and ($obj.thread_id.Length -ge 8)) {
+        return $obj.thread_id
+      }
+    } catch {}
+  }
+  return ""
+}
+
+function Get-SessionIdFromText([string]$LogPath) {
   if (-not (Test-Path -LiteralPath $LogPath)) { return "" }
-  $fallback = ""
   foreach ($line in (Get-Content -LiteralPath $LogPath -Encoding UTF8)) {
-    if ($line -match '^\s*\{.*"type"\s*:\s*"thread\.started"' -and $line -match '"thread_id"\s*:\s*"([0-9a-fA-F-]{8,})"') {
+    if ($line -match '(?i)^\s*session id:\s*([0-9a-f-]{8,})\s*$') {
       return $Matches[1]
     }
-    if (-not $fallback -and $line -match '(?i)^\s*session id:\s*([0-9a-f-]{8,})\s*$') {
-      $fallback = $Matches[1]
-    }
   }
-  return $fallback
+  return ""
 }
 
 function Get-CodexOptionsLines {
@@ -188,12 +199,14 @@ if (-not [string]::IsNullOrWhiteSpace($OutputFile)) {
     New-Item -ItemType Directory -Path $outDir -Force | Out-Null
   }
   $logFile = [System.IO.Path]::ChangeExtension($OutputFile, ".log")
+  $eventsFile = [System.IO.Path]::ChangeExtension($OutputFile, ".events.jsonl")
   $sessionFile = [System.IO.Path]::ChangeExtension($OutputFile, ".session_id")
 } else {
   $tmpRunDir = Join-Path ([System.IO.Path]::GetTempPath()) ("codex-run-" + [guid]::NewGuid().ToString("N"))
   New-Item -ItemType Directory -Path $tmpRunDir -Force | Out-Null
   $OutputFile = Join-Path $tmpRunDir "last_message.md"
   $logFile = Join-Path $tmpRunDir "last_message.log"
+  $eventsFile = Join-Path $tmpRunDir "last_message.events.jsonl"
   $sessionFile = Join-Path $tmpRunDir "last_message.session_id"
 }
 $outFlags = @("-o", $OutputFile)
@@ -215,6 +228,9 @@ try {
   }
 
   $helpText = (& codex exec --help 2>&1) -join "`n"
+  $useJsonEvents = ($helpText -match "--json")
+  $jsonFlags = if ($useJsonEvents) { @("--json") } else { @() }
+
   if ($Mode -eq "review") {
     $approvalFlags = @("-s", "read-only")
   } elseif ($helpText -match "--approve-for-me") {
@@ -285,21 +301,23 @@ try {
 
   if ($Mode -eq "execute") {
     # Reset stale artifacts so a new task can never inherit an older run's summary or session ID
-    if (Test-Path -LiteralPath $OutputFile)  { Remove-Item -LiteralPath $OutputFile  -Force -ErrorAction SilentlyContinue }
-    if (Test-Path -LiteralPath $sessionFile) { Remove-Item -LiteralPath $sessionFile -Force -ErrorAction SilentlyContinue }
+    foreach ($f in @($OutputFile, $sessionFile, $eventsFile)) {
+      if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
+    }
     $cwd = (Get-Location).Path
     $promptHeader = "You are the Principal Software Engineer in a Google Antigravity + OpenAI Codex workflow. <stdin> contains the user-approved specification defining the goal, UX/business behavior, edge cases, scope boundaries, and acceptance criteria inside $cwd. You own the 'How': inspect the relevant code, design clean and idiomatic engineering implementations matching existing codebase conventions, and strictly respect scope boundaries. Keep command outputs concise: never dump full large files or raw multi-hundred-line logs to stdout; prefer targeted line ranges or summarized checks. Do not run git commit or git push. Before finishing, run the relevant build, typecheck, lint, and test commands yourself inside the workspace and fix any failures on the spot so you deliver working, verified code in one pass. End with a concise technical summary of files changed and verification commands executed."
     Write-Output "==> [Codex Engineer] Starting implementation & self-test in: $WorkspaceDir"
     Write-Output "==> [Codex Engineer] Spec file: $InputFile"
-    $argsList = @("exec") + $approvalFlags + @("--color", "never") + $isolateFlags + $worktreeFlags + $overrideFlags + $gitFlags + $outFlags + @($promptHeader)
+    $argsList = @("exec") + $approvalFlags + @("--color", "never") + $jsonFlags + $isolateFlags + $worktreeFlags + $overrideFlags + $gitFlags + $outFlags + @($promptHeader)
   } elseif ($Mode -eq "review") {
-    if (Test-Path -LiteralPath $OutputFile)  { Remove-Item -LiteralPath $OutputFile  -Force -ErrorAction SilentlyContinue }
-    if (Test-Path -LiteralPath $sessionFile) { Remove-Item -LiteralPath $sessionFile -Force -ErrorAction SilentlyContinue }
+    foreach ($f in @($OutputFile, $sessionFile, $eventsFile)) {
+      if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
+    }
     $cwd = (Get-Location).Path
     $promptHeader = "You are a Principal Code Reviewer & Architecture Auditor in a Google Antigravity + OpenAI Codex workflow. You are running in strict read-only mode inside $cwd - do not attempt to modify any files. Read the audit scope in <stdin>, inspect the relevant source files or git diff concisely (never dump full large files to stdout), and report concrete findings grouped by severity (Critical / Warning / Suggestion) with exact file:line references and actionable recommendations."
     Write-Output "==> [Codex Reviewer] Starting read-only audit in: $WorkspaceDir"
     Write-Output "==> [Codex Reviewer] Audit spec: $InputFile"
-    $argsList = @("exec") + $approvalFlags + @("--color", "never") + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @($promptHeader)
+    $argsList = @("exec") + $approvalFlags + @("--color", "never") + $jsonFlags + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @($promptHeader)
   } else {
     if ((-not [string]::IsNullOrWhiteSpace($Session)) -and $Last) {
       [Console]::Error.WriteLine("ERROR: -Session and -Last are mutually exclusive.")
@@ -323,27 +341,43 @@ try {
       exit 2
     }
 
-    # Only reset stale summary AFTER resume target is validated
-    if (Test-Path -LiteralPath $OutputFile) { Remove-Item -LiteralPath $OutputFile -Force -ErrorAction SilentlyContinue }
+    # Only reset stale summary/events AFTER resume target is validated
+    foreach ($f in @($OutputFile, $eventsFile)) {
+      if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
+    }
     Write-Output "==> [Codex Engineer] Follow-up review feedback: $InputFile"
     if ($resumeMode -eq "pinned") {
       Write-Output "==> [Codex Engineer] Resuming pinned Codex session '$Session' in: $WorkspaceDir"
-      $argsList = @("exec") + $approvalFlags + @("--color", "never", "resume") + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @($Session, "-")
+      $argsList = @("exec") + $approvalFlags + @("--color", "never", "resume") + $jsonFlags + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @($Session, "-")
     } else {
       Write-Output "==> [Codex Engineer] Explicitly resuming latest Codex session (--last) in: $WorkspaceDir"
-      $argsList = @("exec") + $approvalFlags + @("--color", "never", "resume", "--last") + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @("-")
+      $argsList = @("exec") + $approvalFlags + @("--color", "never", "resume", "--last") + $jsonFlags + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @("-")
     }
   }
 
-  if ($verbose) {
-    $stdinContent | & codex @argsList 2>&1 | Tee-Object -FilePath $logFile
-    $exitCode = $LASTEXITCODE
+  if ($useJsonEvents) {
+    if ($verbose) {
+      $stdinContent | & codex @argsList 2>$logFile | Tee-Object -FilePath $eventsFile
+      $exitCode = $LASTEXITCODE
+      if ((Test-Path -LiteralPath $logFile) -and ((Get-Item -LiteralPath $logFile).Length -gt 0)) {
+        Get-Content -LiteralPath $logFile -Encoding UTF8 | ForEach-Object { [Console]::Error.WriteLine($_) }
+      }
+    } else {
+      $stdinContent | & codex @argsList 1>$eventsFile 2>$logFile
+      $exitCode = $LASTEXITCODE
+    }
+    $capturedSid = Get-SessionIdFromJsonl $eventsFile
   } else {
-    $stdinContent | & codex @argsList *> $logFile
-    $exitCode = $LASTEXITCODE
+    if ($verbose) {
+      $stdinContent | & codex @argsList 2>&1 | Tee-Object -FilePath $logFile
+      $exitCode = $LASTEXITCODE
+    } else {
+      $stdinContent | & codex @argsList *> $logFile
+      $exitCode = $LASTEXITCODE
+    }
+    $capturedSid = Get-SessionIdFromText $logFile
   }
 
-  $capturedSid = Get-SessionIdFromLog $logFile
   if (-not [string]::IsNullOrWhiteSpace($capturedSid)) {
     [System.IO.File]::WriteAllText($sessionFile, "$capturedSid`n", [System.Text.UTF8Encoding]::new($false))
   }
