@@ -16,7 +16,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true, Position = 0)]
-  [ValidateSet("list-options", "sync-options", "init-shared", "list-sessions", "execute", "review", "resume", "fork")]
+  [ValidateSet("list-options", "sync-options", "list-projects", "init-shared", "list-sessions", "execute", "review", "resume", "fork")]
   [string]$Mode,
 
   [Parameter(Mandatory = $false, Position = 1)]
@@ -111,6 +111,34 @@ function Get-SessionIdFromText([string]$LogPath) {
   return ""
 }
 
+function Get-CodexProjectLines {
+  $stateDb = Join-Path $codexDir "state_5.sqlite"
+  if (-not (Test-Path -LiteralPath $stateDb)) { return @() }
+  $pyCmd = Get-Command python -ErrorAction SilentlyContinue
+  if (-not $pyCmd) { $pyCmd = Get-Command python3 -ErrorAction SilentlyContinue }
+  if (-not $pyCmd) { return @() }
+  $pyCode = @'
+import sqlite3, sys
+try:
+    conn = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+    cur = conn.cursor()
+    cur.execute("""
+    SELECT p.name, pr.path
+    FROM projects p
+    JOIN project_roots pr ON p.id = pr.project_id
+    WHERE pr.position = (SELECT MIN(pr2.position) FROM project_roots pr2 WHERE pr2.project_id = p.id)
+    ORDER BY p.position ASC
+    """)
+    for name, path in cur.fetchall():
+        if name and path:
+            print(f"  - {name} | {path}")
+    conn.close()
+except Exception:
+    pass
+'@
+  return @(& $pyCmd.Source -c $pyCode $stateDb 2>$null)
+}
+
 function Get-CodexOptionsLines {
   $defaultModel = Get-TomlTopLevelString "model" $configFile
   $defaultEffort = Get-TomlTopLevelString "model_reasoning_effort" $configFile
@@ -139,6 +167,11 @@ function Get-CodexOptionsLines {
     $lines.Add("- efforts: low, medium, high, xhigh")
   }
   $lines.Add("- service_tiers: priority (快速/Fast), default (标准), flex (弹性省流)")
+  $projLines = Get-CodexProjectLines
+  if ($projLines.Count -gt 0) {
+    $lines.Add("- projects:")
+    foreach ($pl in $projLines) { $lines.Add($pl) }
+  }
   return $lines
 }
 
@@ -161,6 +194,16 @@ if ($Mode -eq "list-options") {
 
 if ($Mode -eq "sync-options") {
   Sync-CodexOptionsIntoSkill
+  exit 0
+}
+
+if ($Mode -eq "list-projects") {
+  $projLines = Get-CodexProjectLines
+  if ($projLines.Count -gt 0) {
+    $projLines | ForEach-Object { Write-Output $_ }
+  } else {
+    Write-Output "No Codex projects found in $(Join-Path $codexDir 'state_5.sqlite')"
+  }
   exit 0
 }
 
@@ -311,7 +354,7 @@ db_path, cwd_target, limit = sys.argv[1], os.path.realpath(sys.argv[2]).rstrip("
 conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
 cur = conn.cursor()
 cur.execute(
-    "SELECT id, updated_at, COALESCE(model, ''), COALESCE(NULLIF(title, ''), preview, '') FROM threads WHERE archived = 0 AND rtrim(rtrim(cwd, '/'), '\\') = ? ORDER BY updated_at DESC LIMIT ?",
+    "SELECT id, updated_at, COALESCE(model, ''), COALESCE(NULLIF(title, ''), preview, '') FROM threads WHERE archived = 0 AND COALESCE(model, '') != 'codex-auto-review' AND rtrim(rtrim(cwd, '/'), '\\') = ? ORDER BY updated_at DESC LIMIT ?",
     (cwd_target, limit),
 )
 rows = cur.fetchall()

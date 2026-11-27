@@ -342,15 +342,25 @@ if command -v python3 >/dev/null 2>&1; then
 import sqlite3, sys
 db, cwd = sys.argv[1], sys.argv[2]
 conn = sqlite3.connect(db)
+conn.execute("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT, position INTEGER)")
+conn.execute("CREATE TABLE project_roots (project_id TEXT, position INTEGER, path TEXT)")
+conn.execute("INSERT INTO projects VALUES ('proj-1', 'Desktop Widgets', 0)")
+conn.execute("INSERT INTO project_roots VALUES ('proj-1', 0, ?)", (cwd,))
 conn.execute("CREATE TABLE threads (id TEXT PRIMARY KEY, cwd TEXT, updated_at INTEGER, archived INTEGER, model TEXT, title TEXT, preview TEXT)")
 conn.execute("INSERT INTO threads VALUES ('sess-active-1', ?, 1700000200, 0, 'gpt-6.2-sol', 'Implement auth', '')", (cwd,))
+conn.execute("INSERT INTO threads VALUES ('sess-guard-4', ?, 1700000250, 0, 'codex-auto-review', 'Guardian review', '')", (cwd,))
 conn.execute("INSERT INTO threads VALUES ('sess-archived-2', ?, 1700000300, 1, 'gpt-6.2-sol', 'Old archived', '')", (cwd,))
 conn.execute("INSERT INTO threads VALUES ('sess-other-3', '/other/dir', 1700000400, 0, 'gpt-6.2-sol', 'Other project', '')")
 conn.commit()
 conn.close()
 PY
+  PROJ_OUT="$(CODEX_HOME="$CODEX_HOME_1" "$RUNNER" list-projects)"
+  assert_contains "list-projects returns Codex project" "Desktop Widgets | ${SHARED_WS_REAL}" "$PROJ_OUT"
+  OPTS_WITH_PROJ="$(CODEX_HOME="$CODEX_HOME_1" "$RUNNER" list-options)"
+  assert_contains "list-options embeds Codex projects" "Desktop Widgets | ${SHARED_WS_REAL}" "$OPTS_WITH_PROJ"
   LS_OUT="$(CODEX_HOME="$CODEX_HOME_1" "$RUNNER" list-sessions "$SHARED_WS" --limit 5)"
   assert_contains "list-sessions returns active workspace thread" "sess-active-1" "$LS_OUT"
+  assert_not_contains "list-sessions excludes codex-auto-review noise" "sess-guard-4" "$LS_OUT"
   assert_not_contains "list-sessions excludes archived thread" "sess-archived-2" "$LS_OUT"
   assert_not_contains "list-sessions excludes other workspace thread" "sess-other-3" "$LS_OUT"
 fi

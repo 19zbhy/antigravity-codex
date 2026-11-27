@@ -15,6 +15,7 @@ usage() {
 Usage:
   run-codex.sh list-options
   run-codex.sh sync-options [skill_md_path]
+  run-codex.sh list-projects
   run-codex.sh init-shared   <workspace_dir> [--exclude-state]
   run-codex.sh list-sessions <workspace_dir> [--limit <N>]
   run-codex.sh execute <workspace_dir> <plan_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--worktree] [--no-isolate] [--verbose]
@@ -171,6 +172,36 @@ extract_session_id_from_text() {
   ' "$log_file"
 }
 
+emit_projects() {
+  local state_db="${CODEX_DIR}/state_5.sqlite"
+  if [[ ! -f "$state_db" ]]; then
+    return 0
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$state_db" <<'PY' 2>/dev/null || true
+import sqlite3, sys
+conn = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+cur = conn.cursor()
+cur.execute("""
+SELECT p.name, pr.path
+FROM projects p
+JOIN project_roots pr ON p.id = pr.project_id
+WHERE pr.position = (
+  SELECT MIN(pr2.position) FROM project_roots pr2 WHERE pr2.project_id = p.id
+)
+ORDER BY p.position ASC
+""")
+for name, path in cur.fetchall():
+    if name and path:
+        print(f"  - {name} | {path}")
+conn.close()
+PY
+  elif command -v sqlite3 >/dev/null 2>&1; then
+    sqlite3 -readonly "$state_db" \
+      "SELECT '  - ' || p.name || ' | ' || pr.path FROM projects p JOIN project_roots pr ON p.id = pr.project_id WHERE pr.position = (SELECT MIN(pr2.position) FROM project_roots pr2 WHERE pr2.project_id = p.id) ORDER BY p.position ASC;" 2>/dev/null || true
+  fi
+}
+
 emit_options() {
   local default_model default_effort default_tier
   default_model="$(read_toml_top_level "model" "$CONFIG_FILE")"
@@ -228,6 +259,12 @@ console.log(`- efforts: ${efforts.join(", ")}`);
     echo "- efforts: low, medium, high, xhigh"
   fi
   echo "- service_tiers: priority (快速/Fast), default (标准), flex (弹性省流)"
+  local proj_lines=""
+  proj_lines="$(emit_projects || true)"
+  if [[ -n "$proj_lines" ]]; then
+    echo "- projects:"
+    printf '%s\n' "$proj_lines"
+  fi
 }
 
 sync_options_into_skill() {
@@ -276,6 +313,16 @@ fi
 
 if [[ "$MODE" == "sync-options" ]]; then
   sync_options_into_skill "${1:-$SKILL_MD_PATH}"
+  exit 0
+fi
+
+if [[ "$MODE" == "list-projects" ]]; then
+  proj_lines="$(emit_projects || true)"
+  if [[ -n "$proj_lines" ]]; then
+    printf '%s\n' "$proj_lines"
+  else
+    echo "No Codex projects found in ${CODEX_DIR}/state_5.sqlite"
+  fi
   exit 0
 fi
 
@@ -438,7 +485,9 @@ cur.execute(
     """
     SELECT id, updated_at, COALESCE(model, ''), COALESCE(NULLIF(title, ''), preview, '')
     FROM threads
-    WHERE archived = 0 AND (cwd = ? OR rtrim(cwd, '/') = ?)
+    WHERE archived = 0
+      AND COALESCE(model, '') != 'codex-auto-review'
+      AND (cwd = ? OR rtrim(cwd, '/') = ?)
     ORDER BY updated_at DESC
     LIMIT ?
     """,
@@ -457,7 +506,7 @@ PY
   elif command -v sqlite3 >/dev/null 2>&1; then
     ESCAPED_WS="${TARGET_WS//\'/\'\'}"
     sqlite3 -readonly -separator ' | ' "$STATE_DB" \
-      "SELECT id, datetime(updated_at, 'unixepoch', 'localtime'), COALESCE(model, 'default'), replace(replace(substr(COALESCE(NULLIF(title, ''), preview, ''), 1, 80), char(10), ' '), char(13), ' ') FROM threads WHERE archived = 0 AND rtrim(cwd, '/') = '${ESCAPED_WS%/}' ORDER BY updated_at DESC LIMIT ${LIMIT};"
+      "SELECT id, datetime(updated_at, 'unixepoch', 'localtime'), COALESCE(model, 'default'), replace(replace(substr(COALESCE(NULLIF(title, ''), preview, ''), 1, 80), char(10), ' '), char(13), ' ') FROM threads WHERE archived = 0 AND COALESCE(model, '') != 'codex-auto-review' AND rtrim(cwd, '/') = '${ESCAPED_WS%/}' ORDER BY updated_at DESC LIMIT ${LIMIT};"
   else
     echo "ERROR: Neither python3 nor sqlite3 is available to read $STATE_DB" >&2
     exit 127
