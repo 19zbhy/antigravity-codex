@@ -4,8 +4,8 @@
 
 当用户输入 `/codex` 时，**在第 1 轮直接并行调用 `read_file` 读取 `<USER_HOME>/.gemini/config/plugins/codex-collaborator/skills/codex/SKILL.md` 与 `ask_question`**（不要先单独读文件再弹卡片，直接 1 轮出卡片）。
 
-**文案本地化与极简要求**：卡片选项必须与用户当前语言一致且**禁止带括号说明**（用户说中文时禁止出现 `medium`、`xhigh`、`priority`、`default` 等英文枚举名；Phase 3 调用脚本时再映射回对应路径与 CLI 参数）：
-- 思考深度映射：`low`→`低`、`medium`→`中`、`high`→`高`、`xhigh`→`超高`、`max`→`极高`、`ultra`→`极限`
+**文案本地化与极简要求**：卡片选项简洁无括号（Phase 3 调用脚本时再映射回对应路径与 CLI 参数）：
+- 思考深度映射（中英对照）：`low`→`低 · Low`、`medium`→`中 · Medium`、`high`→`高 · High`、`xhigh`→`超高 · XHigh`、`max`→`极高 · Max`、`ultra`→`极限 · Ultra`
 - 响应速度映射：`priority`→`极速模式`、`default`→`标准速度`
 
 基于下方快照一次性弹出 4 题单选（均为第 1 项 `(Recommended)`，选项简洁无括号）：
@@ -16,8 +16,8 @@
    - `(Recommended) 默认 · <default_model 的展示名>`
    - 快照中 `- models:` 的前 6 个最新模型友好名称（如 `GPT-6.2-Sol`）
 3. **选择思考深度**：
-   - `(Recommended) 默认 · <default_effort 对应的中文名>`
-   - 按 `低 → 中 → 高 → 超高 → 极高 → 极限` 顺序列出快照 `- efforts:` 中包含的档位
+   - `(Recommended) 默认 · <default_effort 对应的中英对照名>`
+   - 按 `低 · Low → 中 · Medium → 高 · High → 超高 · XHigh → 极高 · Max → 极限 · Ultra` 顺序列出快照 `- efforts:` 中包含的档位
 4. **选择响应速度**：
    - `(Recommended) 默认 · <default_tier 对应的中文名>`
    - `极速模式`、`标准速度`
