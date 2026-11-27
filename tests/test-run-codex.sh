@@ -367,11 +367,11 @@ conn.execute("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT, position IN
 conn.execute("CREATE TABLE project_roots (project_id TEXT, position INTEGER, path TEXT)")
 conn.execute("INSERT INTO projects VALUES ('proj-1', 'Desktop Widgets', 0)")
 conn.execute("INSERT INTO project_roots VALUES ('proj-1', 0, ?)", (cwd,))
-conn.execute("CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT, cwd TEXT, updated_at INTEGER, archived INTEGER, model TEXT, title TEXT, preview TEXT)")
-conn.execute("INSERT INTO threads VALUES ('sess-active-1', ?, ?, 1700000200, 0, 'gpt-6.2-sol', 'Implement auth', '')", (rollout, cwd))
-conn.execute("INSERT INTO threads VALUES ('sess-guard-4', '', ?, 1700000250, 0, 'codex-auto-review', 'Guardian review', '')", (cwd,))
-conn.execute("INSERT INTO threads VALUES ('sess-archived-2', '', ?, 1700000300, 1, 'gpt-6.2-sol', 'Old archived', '')", (cwd,))
-conn.execute("INSERT INTO threads VALUES ('sess-other-3', '', '/other/dir', 1700000400, 0, 'gpt-6.2-sol', 'Other project', '')")
+conn.execute("CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT, cwd TEXT, updated_at INTEGER, recency_at INTEGER, archived INTEGER, model TEXT, name TEXT, title TEXT, preview TEXT)")
+conn.execute("INSERT INTO threads VALUES ('sess-active-1', ?, ?, 1700000200, 1700000500, 0, 'gpt-6.2-sol', 'Sidebar Custom Name', '# Files mentioned by user', '')", (rollout, cwd))
+conn.execute("INSERT INTO threads VALUES ('sess-guard-4', '', ?, 1700000250, 1700000250, 0, 'codex-auto-review', 'Guardian', 'Guardian review', '')", (cwd,))
+conn.execute("INSERT INTO threads VALUES ('sess-archived-2', '', ?, 1700000300, 1700000300, 1, 'gpt-6.2-sol', 'Archived', 'Old archived', '')", (cwd,))
+conn.execute("INSERT INTO threads VALUES ('sess-other-3', '', '/other/dir', 1700000400, 1700000400, 0, 'gpt-6.2-sol', 'Other', 'Other project', '')")
 conn.commit()
 conn.close()
 PY
@@ -381,6 +381,7 @@ PY
   assert_contains "list-options embeds Codex projects" "Desktop Widgets | ${SHARED_WS_REAL}" "$OPTS_WITH_PROJ"
   LS_OUT="$(CODEX_HOME="$CODEX_HOME_1" "$RUNNER" list-sessions "$SHARED_WS" --limit 5)"
   assert_contains "list-sessions returns active workspace thread" "sess-active-1" "$LS_OUT"
+  assert_contains "list-sessions prefers Codex sidebar name over raw title" "Sidebar Custom Name" "$LS_OUT"
   assert_not_contains "list-sessions excludes codex-auto-review noise" "sess-guard-4" "$LS_OUT"
   assert_not_contains "list-sessions excludes archived thread" "sess-archived-2" "$LS_OUT"
   assert_not_contains "list-sessions excludes other workspace thread" "sess-other-3" "$LS_OUT"

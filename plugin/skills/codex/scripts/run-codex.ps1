@@ -531,8 +531,11 @@ import datetime, os, sqlite3, sys
 db_path, cwd_target, limit = sys.argv[1], os.path.realpath(sys.argv[2]).rstrip("\\/"), int(sys.argv[3])
 conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
 cur = conn.cursor()
+cols = {row[1] for row in cur.execute("PRAGMA table_info(threads)").fetchall()}
+title_expr = "COALESCE(NULLIF(name, ''), NULLIF(title, ''), preview, '')" if "name" in cols else "COALESCE(NULLIF(title, ''), preview, '')"
+ts_expr = "COALESCE(NULLIF(recency_at, 0), updated_at)" if "recency_at" in cols else "updated_at"
 cur.execute(
-    "SELECT id, updated_at, COALESCE(model, ''), COALESCE(NULLIF(title, ''), preview, '') FROM threads WHERE archived = 0 AND COALESCE(model, '') != 'codex-auto-review' AND rtrim(rtrim(cwd, '/'), '\\') = ? ORDER BY updated_at DESC LIMIT ?",
+    f"SELECT id, {ts_expr}, COALESCE(model, ''), {title_expr} FROM threads WHERE archived = 0 AND COALESCE(model, '') != 'codex-auto-review' AND rtrim(rtrim(cwd, '/'), '\\') = ? ORDER BY {ts_expr} DESC LIMIT ?",
     (cwd_target, limit),
 )
 rows = cur.fetchall()
@@ -541,7 +544,7 @@ if not rows:
     print(f"No active Codex sessions found for workspace: {cwd_target}")
 else:
     for sid, ts, model, title in rows:
-        dt = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if isinstance(ts, (int, float)) and ts > 0 else str(ts)
+        dt = datetime.datetime.fromtimestamp(ts).strftime("%m-%d %H:%M") if isinstance(ts, (int, float)) and ts > 0 else str(ts)
         print(f"{sid} | {dt} | {model or 'default'} | {' '.join(str(title).split())[:80]}")
 '@
     & $pyCmd.Source -c $pyCode $stateDb $targetWs $Limit
@@ -577,7 +580,9 @@ if ($Mode -eq "show-session") {
 import json, os, sqlite3, sys
 db_path, sid, max_turns = sys.argv[1], sys.argv[2], int(sys.argv[3])
 conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-row = conn.execute("SELECT rollout_path, cwd, COALESCE(title, ''), COALESCE(model, '') FROM threads WHERE id = ?", (sid,)).fetchone()
+cols = {r[1] for r in conn.execute("PRAGMA table_info(threads)").fetchall()}
+title_expr = "COALESCE(NULLIF(name, ''), title, '')" if "name" in cols else "COALESCE(title, '')"
+row = conn.execute(f"SELECT rollout_path, cwd, {title_expr}, COALESCE(model, '') FROM threads WHERE id = ?", (sid,)).fetchone()
 conn.close()
 if not row:
     sys.stderr.write(f"ERROR: Session ID not found in state_5.sqlite: {sid}\n")
