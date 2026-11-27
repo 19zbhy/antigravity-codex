@@ -29,7 +29,8 @@
   - **Codex CLI（工程实现 + 现场自测）**：拿到清晰目标后自主决定最地道的工程实现，并在工作区现场跑通构建、Lint 与单测闭环，一次交出能跑通的代码。
 - **零第三方桥接 · 100% 官方正门**：不装 MCP Server、不用逆向反代、不依赖 tmux，直接通过官方 `codex exec` / `codex exec resume --last` 命令行协作，合规稳定。
 - **随 Codex 自动更新的可视化点选卡片（模型 / 推理强度 / 服务档位）**：每次触发 `/codex` 时自动调用 `list-options` 实时读取本机 `~/.codex/models_cache.json` 与 `~/.codex/config.toml`，动态弹出当前账号最新可用的全部模型、支持的推理强度（如 `low`～`ultra`）与服务档位（`priority` 快速 / `default` 标准 / `flex` 省流），无需硬编码，随 Codex 升级自动同步。
-- **静默日志摘要 · 大幅省额度**：把多文件编码与编译试错卸载到单次脚本调用中；默认开启静默摘要模式，将冗长的过程日志落盘到 `.log` 文件、终端仅回传最终结果摘要（调试时可设 `CODEX_VERBOSE=1`），并配合精简输出纪律与前端视觉优先对齐策略。
+- **白名单轻量隔离（`--ignore-user-config`）+ 静默日志摘要**：默认跳过桌面 `~/.codex/config.toml` 里的重型插件与 MCP（仅白名单透传模型、推理强度、服务档位与系统代理），大幅削减 Codex Token 消耗；同时将冗长过程日志落盘 `.log`、终端仅回传最终摘要（随时可用 `--no-isolate` 或 `CODEX_VERBOSE=1` 关闭）。
+- **只读深度审查（`review`）+ 分支隔离（`--worktree`）**：除 `workspace-write` 写代码外，内置严格的 `read-only` 只读审计模式、分场景任务模板（`implementation` / `bugfix` / `review`）以及可选的 `--worktree` 独立分支隔离。
 - **全平台支持**：原生提供 **macOS / Linux (`run-codex.sh`)** 与 **Windows (`run-codex.ps1`)** 双端支持。
 
 ---
@@ -147,7 +148,9 @@ antigravity-codex/
 
 ## 致谢与灵感来源
 
-- 本项目的静默日志摘要输出、精简输出纪律与前端视觉分工思路受到 [xinqinnain/antigravity-codex-commander](https://github.com/xinqinnain/antigravity-codex-commander) 的启发，在此致谢。
+- 静默日志摘要输出、精简输出纪律与前端视觉分工思路受到 [xinqinnain/antigravity-codex-commander](https://github.com/xinqinnain/antigravity-codex-commander) 的启发。
+- `--ignore-user-config` 白名单隔离与 `--worktree` 分支隔离思路受到 [Silhouette-my/codex-in-anti](https://github.com/Silhouette-my/codex-in-anti) 的启发。
+- 分场景任务模板（`implementation` / `bugfix` / `review`）与严格 `read-only` 只读审查模式受到 [lbc9168/antigravity-codex-worker](https://github.com/lbc9168/antigravity-codex-worker) 的启发。
 
 ---
 

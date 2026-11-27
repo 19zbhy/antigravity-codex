@@ -6,49 +6,54 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:${HOME}/.npm-global/bin:/Applicati
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_MD_PATH="${SCRIPT_DIR}/../SKILL.md"
+CODEX_DIR="${CODEX_HOME:-${HOME}/.codex}"
+CONFIG_FILE="${CODEX_DIR}/config.toml"
+CACHE_FILE="${CODEX_DIR}/models_cache.json"
 
 usage() {
   cat <<'EOF' >&2
 Usage:
   run-codex.sh list-options
   run-codex.sh sync-options [skill_md_path]
-  run-codex.sh execute <workspace_dir> <plan_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>]
-  run-codex.sh resume  <workspace_dir> <fix_file>  [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>]
+  run-codex.sh execute <workspace_dir> <plan_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--worktree] [--no-isolate]
+  run-codex.sh review  <workspace_dir> <spec_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate]
+  run-codex.sh resume  <workspace_dir> <fix_file>  [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate]
 
 Environment variables (overridden by CLI flags):
   CODEX_MODEL       Override model name (defaults to ~/.codex/config.toml)
   CODEX_EFFORT      Override model_reasoning_effort (e.g. low | medium | high | xhigh | max | ultra)
   CODEX_TIER        Override service_tier (priority | default | flex | fast)
+  CODEX_ISOLATE=0   Disable --ignore-user-config whitelist isolation (load full desktop config.toml)
   CODEX_VERBOSE=1   Stream full codex process output to stdout instead of quiet log-summary mode.
 EOF
   exit 2
 }
 
-emit_options() {
-  local codex_dir="${CODEX_HOME:-${HOME}/.codex}"
-  local config_file="${codex_dir}/config.toml"
-  local cache_file="${codex_dir}/models_cache.json"
-
-  local default_model=""
-  local default_effort=""
-  local default_tier=""
-  if [[ -f "$config_file" ]]; then
-    default_model="$(grep -E '^[[:space:]]*model[[:space:]]*=' "$config_file" | head -n 1 | sed -E 's/^[^=]*=[[:space:]]*"([^"]*)".*/\1/' || true)"
-    default_effort="$(grep -E '^[[:space:]]*model_reasoning_effort[[:space:]]*=' "$config_file" | head -n 1 | sed -E 's/^[^=]*=[[:space:]]*"([^"]*)".*/\1/' || true)"
-    default_tier="$(grep -E '^[[:space:]]*service_tier[[:space:]]*=' "$config_file" | head -n 1 | sed -E 's/^[^=]*=[[:space:]]*"([^"]*)".*/\1/' || true)"
+read_toml_str() {
+  local key="$1"
+  local file="$2"
+  if [[ -f "$file" ]]; then
+    grep -E "^[[:space:]]*${key}[[:space:]]*=" "$file" | head -n 1 | sed -E 's/^[^=]*=[[:space:]]*"([^"]*)".*/\1/' || true
   fi
+}
+
+emit_options() {
+  local default_model default_effort default_tier
+  default_model="$(read_toml_str "model" "$CONFIG_FILE")"
+  default_effort="$(read_toml_str "model_reasoning_effort" "$CONFIG_FILE")"
+  default_tier="$(read_toml_str "service_tier" "$CONFIG_FILE")"
 
   echo "- default_model: ${default_model:-default}"
   echo "- default_effort: ${default_effort:-default}"
   echo "- default_tier: ${default_tier:-default}"
 
-  if [[ -f "$cache_file" ]]; then
+  if [[ -f "$CACHE_FILE" ]]; then
     if command -v jq >/dev/null 2>&1; then
       echo "- models:"
-      jq -r '.models[]? | select(.visibility == "list") | "  - \(.slug) (\(.display_name // .slug))"' "$cache_file"
-      echo "- efforts: $(jq -r '[.models[]? | select(.visibility == "list") | .supported_reasoning_levels[]?.effort] | unique | join(", ")' "$cache_file")"
+      jq -r '.models[]? | select(.visibility == "list") | "  - \(.slug) (\(.display_name // .slug))"' "$CACHE_FILE"
+      echo "- efforts: $(jq -r '[.models[]? | select(.visibility == "list") | .supported_reasoning_levels[]?.effort] | unique | join(", ")' "$CACHE_FILE")"
     elif command -v python3 >/dev/null 2>&1; then
-      python3 - "$cache_file" <<'PY'
+      python3 - "$CACHE_FILE" <<'PY'
 import json, sys
 with open(sys.argv[1], "r", encoding="utf-8") as f:
     data = json.load(f)
@@ -79,7 +84,7 @@ for (const m of models) {
   console.log(`  - ${m.slug} (${m.display_name || m.slug})`);
 }
 console.log(`- efforts: ${efforts.join(", ")}`);
-' "$cache_file"
+' "$CACHE_FILE"
     else
       echo "- models: (install jq, python3, or node to parse models_cache.json)"
       echo "- efforts: low, medium, high, xhigh"
@@ -151,6 +156,8 @@ OUTPUT_FILE=""
 MODEL="${CODEX_MODEL:-}"
 EFFORT="${CODEX_EFFORT:-}"
 TIER="${CODEX_TIER:-}"
+ISOLATE="${CODEX_ISOLATE:-1}"
+USE_WORKTREE="0"
 VERBOSE="${CODEX_VERBOSE:-0}"
 
 # Optional 4th positional argument: output_last_message_file (if not starting with --)
@@ -175,6 +182,14 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "ERROR: --tier requires a value" >&2; exit 2; }
       TIER="$2"
       shift 2
+      ;;
+    --worktree)
+      USE_WORKTREE="1"
+      shift
+      ;;
+    --no-isolate)
+      ISOLATE="0"
+      shift
       ;;
     --verbose)
       VERBOSE="1"
@@ -233,14 +248,45 @@ else
   GIT_FLAGS=(--skip-git-repo-check)
 fi
 
-# Auto-detect approval flag across codex-cli versions
-if codex exec --help 2>&1 | grep -q -- '--approve-for-me'; then
+EXEC_HELP="$(codex exec --help 2>&1 || true)"
+
+# Approval / sandbox flags based on mode
+if [[ "$MODE" == "review" ]]; then
+  APPROVAL_FLAGS=(-s read-only)
+elif echo "$EXEC_HELP" | grep -q -- '--approve-for-me'; then
   APPROVAL_FLAGS=(--approve-for-me -s workspace-write)
 else
   APPROVAL_FLAGS=(--full-auto)
 fi
 
-# Build optional model / reasoning effort / service tier overrides
+WORKTREE_FLAGS=()
+if [[ "$USE_WORKTREE" == "1" ]] && [[ "$MODE" == "execute" ]]; then
+  if echo "$EXEC_HELP" | grep -q -- '--worktree'; then
+    WORKTREE_FLAGS=(--worktree)
+  else
+    echo "WARN: Current codex CLI does not support --worktree; running in current workspace." >&2
+  fi
+fi
+
+# Whitelist isolation (--ignore-user-config): skip heavy desktop plugins & MCPs to save ~45% Codex tokens
+ISOLATE_FLAGS=()
+CFG_PROVIDER="$(read_toml_str "model_provider" "$CONFIG_FILE")"
+if [[ "$ISOLATE" == "1" ]] && echo "$EXEC_HELP" | grep -q -- '--ignore-user-config'; then
+  # Only isolate automatically when using default/openai provider so custom provider blocks remain intact
+  if [[ -z "$CFG_PROVIDER" ]] || [[ "$CFG_PROVIDER" == "openai" ]]; then
+    ISOLATE_FLAGS=(--ignore-user-config)
+    [[ -z "$MODEL" ]]  && MODEL="$(read_toml_str "model" "$CONFIG_FILE")"
+    [[ -z "$EFFORT" ]] && EFFORT="$(read_toml_str "model_reasoning_effort" "$CONFIG_FILE")"
+    [[ -z "$TIER" ]]   && TIER="$(read_toml_str "service_tier" "$CONFIG_FILE")"
+    if [[ -f "$CONFIG_FILE" ]] && grep -qE '^[[:space:]]*respect_system_proxy[[:space:]]*=[[:space:]]*true' "$CONFIG_FILE"; then
+      ISOLATE_FLAGS+=(-c "features.respect_system_proxy=true")
+    fi
+  else
+    echo "==> [Codex Engineer] Custom model_provider='${CFG_PROVIDER}' detected; loading full ~/.codex/config.toml"
+  fi
+fi
+
+# Build model / reasoning effort / service tier flags
 OVERRIDE_FLAGS=()
 OVERRIDE_DESC=()
 if [[ -n "$MODEL" ]]; then
@@ -254,6 +300,12 @@ fi
 if [[ -n "$TIER" ]]; then
   OVERRIDE_FLAGS+=(-c "service_tier=\"${TIER}\"")
   OVERRIDE_DESC+=("tier=${TIER}")
+fi
+if [[ ${#ISOLATE_FLAGS[@]} -gt 0 ]]; then
+  OVERRIDE_DESC+=("isolated=on")
+fi
+if [[ ${#WORKTREE_FLAGS[@]} -gt 0 ]]; then
+  OVERRIDE_DESC+=("worktree=on")
 fi
 
 run_codex_cmd() {
@@ -291,19 +343,35 @@ run_codex_cmd() {
 }
 
 if [[ ${#OVERRIDE_DESC[@]} -gt 0 ]]; then
-  echo "==> [Codex Engineer] Runtime overrides: ${OVERRIDE_DESC[*]}"
+  echo "==> [Codex Engineer] Runtime config: ${OVERRIDE_DESC[*]}"
 else
   echo "==> [Codex Engineer] Runtime config: using ~/.codex/config.toml defaults"
 fi
 
 case "$MODE" in
   execute)
-    PROMPT_HEADER="You are the Principal Software Engineer in a Google Antigravity + OpenAI Codex workflow. <stdin> contains the user-approved specification defining the goal, UX/business behavior, edge cases, scope boundaries, and acceptance criteria inside $(pwd). You own the 'How': inspect the relevant code, design clean and idiomatic engineering implementations matching existing codebase conventions, and strictly respect scope boundaries. Keep command outputs concise: never dump full large files or raw multi-hundred-line logs to stdout; prefer targeted line ranges or summarized checks. Before finishing, run the relevant build, typecheck, lint, and test commands yourself inside the workspace and fix any failures on the spot so you deliver working, verified code in one pass. End with a concise technical summary of files changed and verification commands executed."
+    PROMPT_HEADER="You are the Principal Software Engineer in a Google Antigravity + OpenAI Codex workflow. <stdin> contains the user-approved specification defining the goal, UX/business behavior, edge cases, scope boundaries, and acceptance criteria inside $(pwd). You own the 'How': inspect the relevant code, design clean and idiomatic engineering implementations matching existing codebase conventions, and strictly respect scope boundaries. Keep command outputs concise: never dump full large files or raw multi-hundred-line logs to stdout; prefer targeted line ranges or summarized checks. Do not run git commit or git push. Before finishing, run the relevant build, typecheck, lint, and test commands yourself inside the workspace and fix any failures on the spot so you deliver working, verified code in one pass. End with a concise technical summary of files changed and verification commands executed."
     echo "==> [Codex Engineer] Starting implementation & self-test in: $WORKSPACE_DIR"
     echo "==> [Codex Engineer] Spec file: $INPUT_FILE"
     run_codex_cmd codex exec \
       "${APPROVAL_FLAGS[@]}" \
       --color never \
+      ${ISOLATE_FLAGS[@]+"${ISOLATE_FLAGS[@]}"} \
+      ${WORKTREE_FLAGS[@]+"${WORKTREE_FLAGS[@]}"} \
+      ${OVERRIDE_FLAGS[@]+"${OVERRIDE_FLAGS[@]}"} \
+      ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
+      ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
+      "$PROMPT_HEADER" < "$INPUT_FILE"
+    ;;
+
+  review)
+    PROMPT_HEADER="You are a Principal Code Reviewer & Architecture Auditor in a Google Antigravity + OpenAI Codex workflow. You are running in strict read-only mode inside $(pwd) — do not attempt to modify any files. Read the audit scope in <stdin>, inspect the relevant source files or git diff concisely (never dump full large files to stdout), and report concrete findings grouped by severity (Critical / Warning / Suggestion) with exact file:line references and actionable recommendations."
+    echo "==> [Codex Reviewer] Starting read-only audit in: $WORKSPACE_DIR"
+    echo "==> [Codex Reviewer] Audit spec: $INPUT_FILE"
+    run_codex_cmd codex exec \
+      "${APPROVAL_FLAGS[@]}" \
+      --color never \
+      ${ISOLATE_FLAGS[@]+"${ISOLATE_FLAGS[@]}"} \
       ${OVERRIDE_FLAGS[@]+"${OVERRIDE_FLAGS[@]}"} \
       ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
       ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
@@ -318,6 +386,7 @@ case "$MODE" in
       --color never \
       resume \
       --last \
+      ${ISOLATE_FLAGS[@]+"${ISOLATE_FLAGS[@]}"} \
       ${OVERRIDE_FLAGS[@]+"${OVERRIDE_FLAGS[@]}"} \
       ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
       ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
@@ -325,7 +394,7 @@ case "$MODE" in
     ;;
 
   *)
-    echo "ERROR: Unknown subcommand '$MODE' (expected 'list-options', 'sync-options', 'execute', or 'resume')." >&2
+    echo "ERROR: Unknown subcommand '$MODE' (expected 'list-options', 'sync-options', 'execute', 'review', or 'resume')." >&2
     usage
     ;;
 esac

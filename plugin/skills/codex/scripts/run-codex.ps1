@@ -3,19 +3,21 @@
 .SYNOPSIS
   Windows PowerShell runner for the Google Antigravity x OpenAI Codex workflow.
 .DESCRIPTION
-  Supports 'list-options' (auto-discovers live models & reasoning efforts from ~/.codex/models_cache.json),
-  'execute', and 'resume'. Runs in quiet log-summary mode by default (writing verbose process logs to
-  a sibling .log file and printing only the final summary to stdout to save Antigravity context tokens).
+  Supports 'list-options', 'sync-options', 'execute' (workspace-write), 'review' (read-only),
+  and 'resume'. Enables --ignore-user-config whitelist isolation by default (skipping heavy
+  desktop plugins/MCPs while preserving model, effort, tier, and proxy settings) and runs in
+  quiet log-summary mode.
 .EXAMPLE
   pwsh -NoProfile -File run-codex.ps1 list-options
   pwsh -NoProfile -File run-codex.ps1 execute C:\path\to\workspace C:\path\to\implementation_plan.md C:\path\to\codex_last_message.md -Model gpt-6.2-sol -Effort high -Tier priority
+  pwsh -NoProfile -File run-codex.ps1 review  C:\path\to\workspace C:\path\to\review_spec.md C:\path\to\codex_last_message.md
   pwsh -NoProfile -File run-codex.ps1 resume  C:\path\to\workspace C:\path\to\codex_fix_instructions.md C:\path\to\codex_last_message.md
 #>
 
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true, Position = 0)]
-  [ValidateSet("list-options", "sync-options", "execute", "resume")]
+  [ValidateSet("list-options", "sync-options", "execute", "review", "resume")]
   [string]$Mode,
 
   [Parameter(Mandatory = $false, Position = 1)]
@@ -35,33 +37,37 @@ param(
 
   [Parameter(Mandatory = $false)]
   [ValidateSet("", "priority", "default", "flex", "fast")]
-  [string]$Tier = ""
+  [string]$Tier = "",
+
+  [switch]$Worktree,
+  [switch]$NoIsolate
 )
 
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
-function Get-CodexOptionsLines {
-  $codexDir = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME ".codex" }
-  $configFile = Join-Path $codexDir "config.toml"
-  $cacheFile = Join-Path $codexDir "models_cache.json"
+$codexDir = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME ".codex" }
+$configFile = Join-Path $codexDir "config.toml"
+$cacheFile = Join-Path $codexDir "models_cache.json"
 
-  $defaultModel = "default"
-  $defaultEffort = "default"
-  $defaultTier = "default"
-  if (Test-Path -LiteralPath $configFile) {
-    $cfgLines = Get-Content -LiteralPath $configFile -Encoding UTF8
-    foreach ($line in $cfgLines) {
-      if ($defaultModel -eq "default" -and $line -match '^\s*model\s*=\s*"([^"]+)"') { $defaultModel = $Matches[1] }
-      if ($defaultEffort -eq "default" -and $line -match '^\s*model_reasoning_effort\s*=\s*"([^"]+)"') { $defaultEffort = $Matches[1] }
-      if ($defaultTier -eq "default" -and $line -match '^\s*service_tier\s*=\s*"([^"]+)"') { $defaultTier = $Matches[1] }
-    }
+function Get-TomlStringValue([string]$Key, [string]$Path) {
+  if (-not (Test-Path -LiteralPath $Path)) { return "" }
+  $pattern = "^\s*$([regex]::Escape($Key))\s*=\s*`"([^`"]*)`""
+  foreach ($line in (Get-Content -LiteralPath $Path -Encoding UTF8)) {
+    if ($line -match $pattern) { return $Matches[1] }
   }
+  return ""
+}
+
+function Get-CodexOptionsLines {
+  $defaultModel = Get-TomlStringValue "model" $configFile
+  $defaultEffort = Get-TomlStringValue "model_reasoning_effort" $configFile
+  $defaultTier = Get-TomlStringValue "service_tier" $configFile
 
   $lines = [System.Collections.Generic.List[string]]::new()
-  $lines.Add("- default_model: $defaultModel")
-  $lines.Add("- default_effort: $defaultEffort")
-  $lines.Add("- default_tier: $defaultTier")
+  $lines.Add("- default_model: $(if ($defaultModel) { $defaultModel } else { 'default' })")
+  $lines.Add("- default_effort: $(if ($defaultEffort) { $defaultEffort } else { 'default' })")
+  $lines.Add("- default_tier: $(if ($defaultTier) { $defaultTier } else { 'default' })")
 
   $allEfforts = [System.Collections.Generic.List[string]]::new()
   if (Test-Path -LiteralPath $cacheFile) {
@@ -85,8 +91,7 @@ function Get-CodexOptionsLines {
 }
 
 function Sync-CodexOptionsIntoSkill {
-  $scriptDir = Split-Path -Parent $MyInvocation.ScriptName
-  if (-not $scriptDir) { $scriptDir = Split-Path -Parent $PSCommandPath }
+  $scriptDir = Split-Path -Parent $PSCommandPath
   $skillPath = Join-Path (Split-Path -Parent $scriptDir) "SKILL.md"
   if (-not (Test-Path -LiteralPath $skillPath)) { return }
   $content = Get-Content -LiteralPath $skillPath -Raw -Encoding UTF8
@@ -112,6 +117,7 @@ if ([string]::IsNullOrWhiteSpace($Effort) -and $env:CODEX_EFFORT) { $Effort = $e
 if ([string]::IsNullOrWhiteSpace($Tier) -and $env:CODEX_TIER) { $Tier = $env:CODEX_TIER }
 if ($Tier -eq "fast") { $Tier = "priority" }
 
+$isolate = (-not $NoIsolate) -and ($env:CODEX_ISOLATE -ne "0")
 $verbose = ($env:CODEX_VERBOSE -eq "1")
 
 # Ensure common global npm bin path is available in non-interactive shells
@@ -151,27 +157,6 @@ if (-not [string]::IsNullOrWhiteSpace($OutputFile)) {
 }
 $outFlags = @("-o", $OutputFile)
 
-$overrideFlags = @()
-$overrideDesc = @()
-if (-not [string]::IsNullOrWhiteSpace($Model)) {
-  $overrideFlags += @("-m", $Model)
-  $overrideDesc += "model=$Model"
-}
-if (-not [string]::IsNullOrWhiteSpace($Effort)) {
-  $overrideFlags += @("-c", "model_reasoning_effort=`"$Effort`"")
-  $overrideDesc += "effort=$Effort"
-}
-if (-not [string]::IsNullOrWhiteSpace($Tier)) {
-  $overrideFlags += @("-c", "service_tier=`"$Tier`"")
-  $overrideDesc += "tier=$Tier"
-}
-
-if ($overrideDesc.Count -gt 0) {
-  Write-Output "==> [Codex Engineer] Runtime overrides: $($overrideDesc -join ' ')"
-} else {
-  Write-Output "==> [Codex Engineer] Runtime config: using ~/.codex/config.toml defaults"
-}
-
 Push-Location -LiteralPath $WorkspaceDir
 try {
   $gitFlags = @()
@@ -187,26 +172,81 @@ try {
     $gitFlags = @("--skip-git-repo-check")
   }
 
-  # Auto-detect approval flag across codex-cli versions
   $helpText = (& codex exec --help 2>&1) -join "`n"
-  if ($helpText -match "--approve-for-me") {
+  if ($Mode -eq "review") {
+    $approvalFlags = @("-s", "read-only")
+  } elseif ($helpText -match "--approve-for-me") {
     $approvalFlags = @("--approve-for-me", "-s", "workspace-write")
   } else {
     $approvalFlags = @("--full-auto")
+  }
+
+  $worktreeFlags = @()
+  if ($Worktree -and ($Mode -eq "execute")) {
+    if ($helpText -match "--worktree") {
+      $worktreeFlags = @("--worktree")
+    } else {
+      Write-Warning "Current codex CLI does not support --worktree; running in current workspace."
+    }
+  }
+
+  $isolateFlags = @()
+  $cfgProvider = Get-TomlStringValue "model_provider" $configFile
+  if ($isolate -and ($helpText -match "--ignore-user-config")) {
+    if ([string]::IsNullOrWhiteSpace($cfgProvider) -or ($cfgProvider -eq "openai")) {
+      $isolateFlags = @("--ignore-user-config")
+      if ([string]::IsNullOrWhiteSpace($Model))  { $Model  = Get-TomlStringValue "model" $configFile }
+      if ([string]::IsNullOrWhiteSpace($Effort)) { $Effort = Get-TomlStringValue "model_reasoning_effort" $configFile }
+      if ([string]::IsNullOrWhiteSpace($Tier))   { $Tier   = Get-TomlStringValue "service_tier" $configFile }
+      if ((Test-Path -LiteralPath $configFile) -and ((Get-Content -LiteralPath $configFile -Raw -Encoding UTF8) -match '(?m)^\s*respect_system_proxy\s*=\s*true')) {
+        $isolateFlags += @("-c", "features.respect_system_proxy=true")
+      }
+    } else {
+      Write-Output "==> [Codex Engineer] Custom model_provider='$cfgProvider' detected; loading full ~/.codex/config.toml"
+    }
+  }
+
+  $overrideFlags = @()
+  $overrideDesc = @()
+  if (-not [string]::IsNullOrWhiteSpace($Model)) {
+    $overrideFlags += @("-m", $Model)
+    $overrideDesc += "model=$Model"
+  }
+  if (-not [string]::IsNullOrWhiteSpace($Effort)) {
+    $overrideFlags += @("-c", "model_reasoning_effort=`"$Effort`"")
+    $overrideDesc += "effort=$Effort"
+  }
+  if (-not [string]::IsNullOrWhiteSpace($Tier)) {
+    $overrideFlags += @("-c", "service_tier=`"$Tier`"")
+    $overrideDesc += "tier=$Tier"
+  }
+  if ($isolateFlags.Count -gt 0) { $overrideDesc += "isolated=on" }
+  if ($worktreeFlags.Count -gt 0) { $overrideDesc += "worktree=on" }
+
+  if ($overrideDesc.Count -gt 0) {
+    Write-Output "==> [Codex Engineer] Runtime config: $($overrideDesc -join ' ')"
+  } else {
+    Write-Output "==> [Codex Engineer] Runtime config: using ~/.codex/config.toml defaults"
   }
 
   $stdinContent = Get-Content -LiteralPath $InputFile -Raw -Encoding UTF8
 
   if ($Mode -eq "execute") {
     $cwd = (Get-Location).Path
-    $promptHeader = "You are the Principal Software Engineer in a Google Antigravity + OpenAI Codex workflow. <stdin> contains the user-approved specification defining the goal, UX/business behavior, edge cases, scope boundaries, and acceptance criteria inside $cwd. You own the 'How': inspect the relevant code, design clean and idiomatic engineering implementations matching existing codebase conventions, and strictly respect scope boundaries. Keep command outputs concise: never dump full large files or raw multi-hundred-line logs to stdout; prefer targeted line ranges or summarized checks. Before finishing, run the relevant build, typecheck, lint, and test commands yourself inside the workspace and fix any failures on the spot so you deliver working, verified code in one pass. End with a concise technical summary of files changed and verification commands executed."
+    $promptHeader = "You are the Principal Software Engineer in a Google Antigravity + OpenAI Codex workflow. <stdin> contains the user-approved specification defining the goal, UX/business behavior, edge cases, scope boundaries, and acceptance criteria inside $cwd. You own the 'How': inspect the relevant code, design clean and idiomatic engineering implementations matching existing codebase conventions, and strictly respect scope boundaries. Keep command outputs concise: never dump full large files or raw multi-hundred-line logs to stdout; prefer targeted line ranges or summarized checks. Do not run git commit or git push. Before finishing, run the relevant build, typecheck, lint, and test commands yourself inside the workspace and fix any failures on the spot so you deliver working, verified code in one pass. End with a concise technical summary of files changed and verification commands executed."
     Write-Output "==> [Codex Engineer] Starting implementation & self-test in: $WorkspaceDir"
     Write-Output "==> [Codex Engineer] Spec file: $InputFile"
-    $argsList = @("exec") + $approvalFlags + @("--color", "never") + $overrideFlags + $gitFlags + $outFlags + @($promptHeader)
+    $argsList = @("exec") + $approvalFlags + @("--color", "never") + $isolateFlags + $worktreeFlags + $overrideFlags + $gitFlags + $outFlags + @($promptHeader)
+  } elseif ($Mode -eq "review") {
+    $cwd = (Get-Location).Path
+    $promptHeader = "You are a Principal Code Reviewer & Architecture Auditor in a Google Antigravity + OpenAI Codex workflow. You are running in strict read-only mode inside $cwd - do not attempt to modify any files. Read the audit scope in <stdin>, inspect the relevant source files or git diff concisely (never dump full large files to stdout), and report concrete findings grouped by severity (Critical / Warning / Suggestion) with exact file:line references and actionable recommendations."
+    Write-Output "==> [Codex Reviewer] Starting read-only audit in: $WorkspaceDir"
+    Write-Output "==> [Codex Reviewer] Audit spec: $InputFile"
+    $argsList = @("exec") + $approvalFlags + @("--color", "never") + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @($promptHeader)
   } else {
     Write-Output "==> [Codex Engineer] Resuming latest Codex session in: $WorkspaceDir"
     Write-Output "==> [Codex Engineer] Follow-up review feedback: $InputFile"
-    $argsList = @("exec") + $approvalFlags + @("--color", "never", "resume", "--last") + $overrideFlags + $gitFlags + $outFlags + @("-")
+    $argsList = @("exec") + $approvalFlags + @("--color", "never", "resume", "--last") + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @("-")
   }
 
   if ($verbose) {

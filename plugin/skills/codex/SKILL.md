@@ -35,7 +35,8 @@ description: >-
    - **若需求开放、存在多种实现路径（如“快改轻量版 vs 高扩展重构版”）或发现潜在产品盲区**：先用通俗好懂的“人话”给出 2～3 个思路与利弊对比（必要时配合 `ask_question` 让用户一键选方向），帮用户打开思路、敲定大方向后再写方案卡片。
    - **若涉及前端视觉设计、配色布局或高清截图审阅**：优先由 Antigravity 直接与用户对齐视觉风格并完成审图，不要把大体积原图塞进 Codex 上下文；纯逻辑/工程模块再交由 Codex 实现。
    - **若需求目标已经非常明确**：直接生成方案卡片，同时主动补充你帮用户额外想到的边界防坑点。
-3. **生成“抓大放小、人话可读”的任务书 `<Artifact Directory Path>/implementation_plan.md`**（设置 `ArtifactMetadata` 为 `UserFacing: true` 和 `RequestFeedback: true` 以渲染 **Proceed** 按钮）：
+3. **生成“抓大放小、人话可读”的任务书 `<Artifact Directory Path>/implementation_plan.md`**（可按任务类型参考同目录 `resources/implementation-task.md`、`bugfix-task.md` 或 `review-task.md`；将 `ArtifactMetadata` 设为 `UserFacing: true` 和 `RequestFeedback: true` 以渲染 **Proceed** 按钮）：
+   - **只读审查特例**：若用户明确要求「只读审查 / Code Review / 源码审计」（不改任何代码），可在 Phase 0 选完档位后直接用 `review` 子命令（`read-only` 沙箱）移交 Codex 审计，无需等待 `Proceed` 写代码门禁。
    - 方案顶部必须保留执行标记与选定的 Codex 运行参数（确保下一轮收到用户确认信号时准确透传）：
      `> 执行方式：用户确认后通过 codex 技能调用 run-codex.sh 交由 OpenAI Codex CLI 自主工程实现与现场自测闭环`
      `> Codex 运行配置：model=<选择值或默认> | effort=<选择值或默认> | tier=<选择值或默认>`
@@ -60,13 +61,18 @@ description: >-
 
 `<USER_HOME>/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh`
 
-调用 `run_command` 执行命令（设置 `WaitMsBeforeAsync: 10000`、`NotificationTimeoutSeconds: 240`；按 Phase 0 选择按需附加 `--model` / `--effort` / `--tier`，沿用默认的项直接省略）：
+调用 `run_command` 执行命令（设置 `WaitMsBeforeAsync: 10000`、`NotificationTimeoutSeconds: 240`；按 Phase 0 选择按需附加 `--model` / `--effort` / `--tier`，沿用默认的项直接省略；若用户要求隔离分支可加 `--worktree`）：
 
 ```bash
+# 写代码 / 重构 / 修 Bug（workspace-write 沙箱）
 <USER_HOME>/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh execute /absolute/path/to/workspace /absolute/path/to/implementation_plan.md /absolute/path/to/artifact_dir/scratch/codex_last_message.md --model <model> --effort <effort> --tier <tier>
+
+# 只读代码审查 / 架构审计（strict read-only 沙箱，严禁改文件）
+<USER_HOME>/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh review /absolute/path/to/workspace /absolute/path/to/artifact_dir/scratch/review_spec.md /absolute/path/to/artifact_dir/scratch/codex_last_message.md --model <model> --effort <effort> --tier <tier>
 ```
 
-- 脚本默认开启**静默摘要模式**：完整过程日志会落盘到同目录的 `*.log` 文件，终端仅回传最终摘要（`codex_last_message.md`），大幅减少 Antigravity 侧的无效上下文消耗（如需实时查看完整过程日志，可在调试时设置 `CODEX_VERBOSE=1`）。
+- **白名单轻量隔离（默认开启）**：脚本自动使用 `--ignore-user-config` 跳过桌面端 `~/.codex/config.toml` 里的重型插件与 MCP（仅白名单透传模型、推理强度、服务档位与代理），可显著降低 Codex Token 消耗并提速（如需加载完整桌面配置可加 `--no-isolate`）。
+- **静默摘要模式（默认开启）**：完整过程日志会落盘到同目录的 `*.log` 文件，终端仅回传最终摘要（`codex_last_message.md`），大幅减少 Antigravity 侧的无效上下文消耗（如需实时查看完整过程日志，可在调试时设置 `CODEX_VERBOSE=1`）。
 - 要求 Codex 遵守**精简输出纪律**：不要向 stdout 倾倒整份大文件或数百行原始日志，优先按行号定向查看或汇总验证结果。
 - 若脚本提示尚未登录（`codex login`），暂停并请用户在终端运行一次 `codex login` 授权后再继续。
 

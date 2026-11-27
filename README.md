@@ -29,7 +29,8 @@ A lightweight, zero-dependency native plugin for **Google Antigravity** that pai
   - **Codex CLI (Engineering & Self-Test)** owns idiomatic implementation and runs build/lint/unit-test loops on the spot before handing back working code.
 - **Zero External Bridges & 100% Official Channels**: No MCP servers, no reverse proxies, no tmux wrappers — just a native Antigravity plugin invoking the official `codex exec` / `codex exec resume --last` CLI.
 - **Auto-Syncing Runtime Picker (`Model` / `Effort` / `Service Tier`)**: Each `/codex` invocation dynamically reads your live `~/.codex/models_cache.json` and `~/.codex/config.toml` (via `run-codex.sh list-options`) to pop up a native Antigravity selector with all currently available Codex models, supported reasoning levels (e.g. `low` → `ultra`), and service tiers (`priority` / `default` / `flex`) — automatically staying in sync whenever Codex updates, with zero hardcoded model lists.
-- **Quota-Friendly Quiet Log-Summary Mode**: Offloads multi-file coding and compile/test fix loops into a single shell turn. By default, verbose Codex process logs are written to a `.log` file while only the concise final summary is returned to Antigravity (set `CODEX_VERBOSE=1` for full streaming), paired with concise output discipline and visual-first UI alignment.
+- **Whitelist Isolation (`--ignore-user-config`) & Quiet Log-Summary Mode**: By default, `run-codex` skips heavy desktop plugins/MCP servers in `~/.codex/config.toml` (whitelisting only model, reasoning effort, service tier, and proxy settings) to slash Codex token overhead, and writes verbose logs to a `.log` file while returning only the concise final summary to Antigravity (use `--no-isolate` or `CODEX_VERBOSE=1` anytime).
+- **Read-Only Audit (`review`) & Worktree Isolation (`--worktree`)**: Supports strict `-s read-only` deep code reviews alongside `workspace-write` implementation, scenario-specific task templates (`implementation` / `bugfix` / `review`), and optional `--worktree` branch isolation.
 - **Cross-Platform**: Works out of the box on **macOS, Linux, and Windows (PowerShell)**.
 
 ---
@@ -148,6 +149,8 @@ antigravity-codex/
 ## Acknowledgements
 
 - Quiet log-summary output, concise output discipline, and visual/UI ownership separation were inspired by [xinqinnain/antigravity-codex-commander](https://github.com/xinqinnain/antigravity-codex-commander).
+- `--ignore-user-config` whitelist isolation and `--worktree` branch isolation were inspired by [Silhouette-my/codex-in-anti](https://github.com/Silhouette-my/codex-in-anti).
+- Scenario-specific task templates (`implementation` / `bugfix` / `review`) and strict `read-only` audit mode were inspired by [lbc9168/antigravity-codex-worker](https://github.com/lbc9168/antigravity-codex-worker).
 
 ---
 
