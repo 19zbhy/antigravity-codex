@@ -6,11 +6,36 @@ description: >-
 
 # Antigravity × Codex 协同技能 (`/codex`)
 
-> **触发边界**：仅在用户通过 `/codex` 显式召唤、或明确口头指定交给 Codex 时启用。一旦启用，请严格遵循 **「Gemini 管 Why & What（产品发散、人话沟通、架构边界、终审把关），Codex 管 How（地道工程设计、极速编码、现场自测闭环）」** 的分工原则，切勿在未获用户允许时由 Gemini 自己改业务源码。
+> **触发边界**：仅在用户通过 `/codex` 显式召唤、或明确口头指定交给 Codex 时启用。一旦启用，请严格遵循 **「Antigravity 管 Why & What（产品发散、人话沟通、架构边界、终审把关），Codex 管 How（地道工程设计、极速编码、现场自测闭环）」** 的分工原则，切勿在未获用户允许时由 Antigravity 自己改业务源码。
 
 ---
 
-## Phase 1：发散探路与“人话”任务书（Gemini）
+## Phase 0：选择 Codex 运行档位（模型 / 推理强度 / 服务档位）
+
+1. **检查用户是否已在 `/codex` 消息中显式指定配置**（例如“用 high 推理、快速模式”或 `--model ... --effort ... --tier ...`）：
+   - 若用户已明确指定，直接采用并跳过弹窗。
+2. **否则，先只读查看 `<USER_HOME>/.codex/config.toml` 前几行**（获取用户当前的默认 `model`、`model_reasoning_effort`、`service_tier`，便于在选项中展示当前默认值），然后调用 **`ask_question`** 一次性弹出 3 个单选问题让用户点选（每题第一项均为 `(Recommended) 沿用本机默认配置`）：
+   - **问题 1（Codex 模型）**：
+     - `(Recommended) 沿用本机默认配置（当前：<default_model>）`
+     - `gpt-6.1-sol`
+     - `gpt-5.4`
+     - （用户也可通过卡片自带的 Other 直接手填任意模型名）
+   - **问题 2（推理强度 `model_reasoning_effort`）**：
+     - `(Recommended) 沿用本机默认配置（当前：<default_effort>）`
+     - `low（轻量极速）`
+     - `medium（均衡推荐）`
+     - `high（深度推理，适合复杂重构/排障）`
+     - `xhigh（最高强度，耗时较长）`
+   - **问题 3（服务档位 `service_tier`）**：
+     - `(Recommended) 沿用本机默认配置（当前：<default_tier>）`
+     - `priority（快速模式 / Fast，响应最快）`
+     - `default（标准模式，速度与额度均衡）`
+     - `flex（弹性省流模式，延迟较高）`
+3. 记住用户的选择（选“沿用本机默认配置”的项在 Phase 3 中不传覆盖参数，直接沿用 `~/.codex/config.toml`）。
+
+---
+
+## Phase 1：发散探路与“人话”任务书（Antigravity）
 
 1. **严禁越权改代码**：只用只读工具（`read_file`、搜索工具、只读命令）快速摸清相关代码结构、现有约定与可复用模块。
 2. **发散思维前置与视觉分工（灵活判断）**：
@@ -18,7 +43,9 @@ description: >-
    - **若涉及前端视觉设计、配色布局或高清截图审阅**：优先由 Antigravity 直接与用户对齐视觉风格并完成审图，不要把大体积原图塞进 Codex 上下文；纯逻辑/工程模块再交由 Codex 实现。
    - **若需求目标已经非常明确**：直接生成方案卡片，同时主动补充你帮用户额外想到的边界防坑点。
 3. **生成“抓大放小、人话可读”的任务书 `<Artifact Directory Path>/implementation_plan.md`**（设置 `ArtifactMetadata` 为 `UserFacing: true` 和 `RequestFeedback: true` 以渲染 **Proceed** 按钮）：
-   - 方案顶部必须保留执行标记：`> 执行方式：用户确认后通过 codex 技能调用 run-codex.sh 交由 OpenAI Codex CLI 自主工程实现与现场自测闭环`
+   - 方案顶部必须保留执行标记与选定的 Codex 运行参数（确保下一轮收到用户确认信号时准确透传）：
+     `> 执行方式：用户确认后通过 codex 技能调用 run-codex.sh 交由 OpenAI Codex CLI 自主工程实现与现场自测闭环`
+     `> Codex 运行配置：model=<选择值或默认> | effort=<选择值或默认> | tier=<选择值或默认>`
    - **严禁事无巨细堆砌伪代码捆死 Codex**！方案聚焦以下 4 个模块（让用户用人话秒懂，同时给足 Codex 工程发挥空间）：
      1. **目标与体验逻辑（Goal & Behavior）**：用清晰的大白话描述要解决的问题、期望的交互/业务表现与输入输出规则。
      2. **发散防坑与边缘情况（Edge Cases & Guardrails）**：列明异常输入、空状态、并发/状态同步、向后兼容等需要兜底的边界场景。
@@ -40,10 +67,10 @@ description: >-
 
 `<USER_HOME>/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh`
 
-调用 `run_command` 执行命令（设置 `WaitMsBeforeAsync: 10000`、`NotificationTimeoutSeconds: 240`）：
+调用 `run_command` 执行命令（设置 `WaitMsBeforeAsync: 10000`、`NotificationTimeoutSeconds: 240`；按 Phase 0 选择按需附加 `--model` / `--effort` / `--tier`，沿用默认的项直接省略）：
 
 ```bash
-<USER_HOME>/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh execute /absolute/path/to/workspace /absolute/path/to/implementation_plan.md /absolute/path/to/artifact_dir/scratch/codex_last_message.md
+<USER_HOME>/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh execute /absolute/path/to/workspace /absolute/path/to/implementation_plan.md /absolute/path/to/artifact_dir/scratch/codex_last_message.md --model <model> --effort <effort> --tier <tier>
 ```
 
 - 脚本默认开启**静默摘要模式**：完整过程日志会落盘到同目录的 `*.log` 文件，终端仅回传最终摘要（`codex_last_message.md`），大幅减少 Antigravity 侧的无效上下文消耗（如需实时查看完整过程日志，可在调试时设置 `CODEX_VERBOSE=1`）。
@@ -52,16 +79,16 @@ description: >-
 
 ---
 
-## Phase 4：Gemini 独立终审与“说人话”汇报
+## Phase 4：Antigravity 独立终审与“说人话”汇报
 
-`run-codex.sh` 执行完毕后，由 Gemini 进行独立把关：
+`run-codex.sh` 执行完毕后，由 Antigravity 进行独立把关：
 
 1. **对齐初心与边界复核**：
    - 读取 `scratch/codex_last_message.md`（若有），并检查 `git status --short` 与 `git diff`（非 Git 目录则用 `read_file` 查看改动文件）。
    - 重点站在**产品体验与架构全局观**核查：用户的真实意图满足了吗？列出的边缘情况兜住了吗？有没有越界误改无关文件？
 2. **核验测试结果与精准打回**：
-   - 若 Codex 在现场已跑通全部构建/测试且 Diff 干净，可做轻量抽检确认即可，避免重复跑耗时全量测试拖慢节奏；若 Codex 未跑某项关键验证，由 Gemini 补跑确认。
-   - 若发现需求遗漏、逻辑偏差或测试报错，**不要由 Gemini 自己上手改业务源码**（除非用户主动要求你接手）：将简明问题清单与报错信息写入 `<Artifact Directory Path>/scratch/codex_fix_instructions.md`，通过 `resume` 唤醒同一个 Codex 会话极速返修（设置 `WaitMsBeforeAsync: 10000`、`NotificationTimeoutSeconds: 240`，最多 3 轮）：
+   - 若 Codex 在现场已跑通全部构建/测试且 Diff 干净，可做轻量抽检确认即可，避免重复跑耗时全量测试拖慢节奏；若 Codex 未跑某项关键验证，由 Antigravity 补跑确认。
+   - 若发现需求遗漏、逻辑偏差或测试报错，**不要由 Antigravity 自己上手改业务源码**（除非用户主动要求你接手）：将简明问题清单与报错信息写入 `<Artifact Directory Path>/scratch/codex_fix_instructions.md`，通过 `resume` 唤醒同一个 Codex 会话极速返修（透传与 Phase 3 一致的 `--model` / `--effort` / `--tier` 参数，设置 `WaitMsBeforeAsync: 10000`、`NotificationTimeoutSeconds: 240`，最多 3 轮）：
 
 ```bash
 <USER_HOME>/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh resume /absolute/path/to/workspace /absolute/path/to/artifact_dir/scratch/codex_fix_instructions.md /absolute/path/to/artifact_dir/scratch/codex_last_message.md

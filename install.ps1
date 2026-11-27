@@ -54,6 +54,8 @@ $winRunnerCmd = "$psExe -NoProfile -ExecutionPolicy Bypass -File `"$runnerPath`"
 $skillContent = $skillContent.Replace($unixPlaceholderRunner, $winRunnerCmd)
 $skillContent = $skillContent.Replace("<USER_HOME>", $TargetHome)
 $skillContent = $skillContent.Replace("run-codex.sh", "run-codex.ps1")
+$skillContent = $skillContent.Replace("--model <model> --effort <effort> --tier <tier>", "-Model <model> -Effort <effort> -Tier <tier>")
+$skillContent = $skillContent.Replace("``--model`` / ``--effort`` / ``--tier``", "``-Model`` / ``-Effort`` / ``-Tier``")
 
 [System.IO.File]::WriteAllText($skillFile, $skillContent, [System.Text.UTF8Encoding]::new($false))
 

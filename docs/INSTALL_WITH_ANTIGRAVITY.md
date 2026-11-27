@@ -114,11 +114,19 @@ description: >-
 
 # Antigravity × Codex 协同技能 (`/codex`)
 
-> **触发边界**：仅在用户通过 `/codex` 显式召唤、或明确口头指定交给 Codex 时启用。一旦启用，请严格遵循 **「Gemini 管 Why & What（产品发散、人话沟通、架构边界、终审把关），Codex 管 How（地道工程设计、极速编码、现场自测闭环）」** 的分工原则，切勿在未获用户允许时由 Gemini 自己改业务源码。
+> **触发边界**：仅在用户通过 `/codex` 显式召唤、或明确口头指定交给 Codex 时启用。一旦启用，请严格遵循 **「Antigravity 管 Why & What（产品发散、人话沟通、架构边界、终审把关），Codex 管 How（地道工程设计、极速编码、现场自测闭环）」** 的分工原则，切勿在未获用户允许时由 Antigravity 自己改业务源码。
 
 ---
 
-## Phase 1：发散探路与“人话”任务书（Gemini）
+## Phase 0：选择 Codex 运行档位（模型 / 推理强度 / 服务档位）
+
+1. **检查用户是否已在 `/codex` 消息中显式指定配置**（例如“用 high 推理、快速模式”或 `--model ... --effort ... --tier ...`）：若已指定，直接采用并跳过弹窗。
+2. **否则，只读查看 `<USER_HOME>/.codex/config.toml` 前几行**获取当前默认值，然后调用 **`ask_question`** 一次性弹出 3 个单选问题（模型 / 推理强度 `low|medium|high|xhigh` / 服务档位 `priority|default|flex`），每题第一项均为 `(Recommended) 沿用本机默认配置`。
+3. 选“沿用本机默认配置”的项在 Phase 3 中省略覆盖参数，直接沿用 `~/.codex/config.toml`。
+
+---
+
+## Phase 1：发散探路与“人话”任务书（Antigravity）
 
 1. **严禁越权改代码**：只用只读工具（`read_file`、搜索工具、只读命令）快速摸清相关代码结构、现有约定与可复用模块。
 2. **发散思维前置与视觉分工（灵活判断）**：
@@ -148,10 +156,10 @@ description: >-
 
 `<USER_HOME>/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh`
 
-调用 `run_command` 执行命令（设置 `WaitMsBeforeAsync: 10000`、`NotificationTimeoutSeconds: 240`）：
+调用 `run_command` 执行命令（设置 `WaitMsBeforeAsync: 10000`、`NotificationTimeoutSeconds: 240`；按 Phase 0 选择按需附加 `--model` / `--effort` / `--tier`，沿用默认的项直接省略）：
 
 ```bash
-<USER_HOME>/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh execute /absolute/path/to/workspace /absolute/path/to/implementation_plan.md /absolute/path/to/artifact_dir/scratch/codex_last_message.md
+<USER_HOME>/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh execute /absolute/path/to/workspace /absolute/path/to/implementation_plan.md /absolute/path/to/artifact_dir/scratch/codex_last_message.md --model <model> --effort <effort> --tier <tier>
 ```
 
 - 脚本默认开启**静默摘要模式**：完整过程日志落盘到同目录的 `*.log`，终端只回传最终摘要，大幅节省 Antigravity 上下文（调试时可设 `CODEX_VERBOSE=1`）。
@@ -193,10 +201,13 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:${HOME}/.npm-global/bin:/Applicati
 usage() {
   cat <<'EOF' >&2
 Usage:
-  run-codex.sh execute <workspace_dir> <plan_file> [output_last_message_file]
-  run-codex.sh resume  <workspace_dir> <fix_file>  [output_last_message_file]
+  run-codex.sh execute <workspace_dir> <plan_file> [output_last_message_file] [--model <name>] [--effort <low|medium|high|xhigh>] [--tier <priority|default|flex|fast>]
+  run-codex.sh resume  <workspace_dir> <fix_file>  [output_last_message_file] [--model <name>] [--effort <low|medium|high|xhigh>] [--tier <priority|default|flex|fast>]
 
-Environment variables:
+Environment variables (overridden by CLI flags):
+  CODEX_MODEL       Override model name (defaults to ~/.codex/config.toml)
+  CODEX_EFFORT      Override model_reasoning_effort (low | medium | high | xhigh)
+  CODEX_TIER        Override service_tier (priority | default | flex | fast)
   CODEX_VERBOSE=1   Stream full codex process output to stdout instead of quiet log-summary mode.
 EOF
   exit 2
@@ -209,8 +220,32 @@ fi
 MODE="$1"
 WORKSPACE_DIR="$2"
 INPUT_FILE="$3"
-OUTPUT_FILE="${4:-}"
+shift 3
+
+OUTPUT_FILE=""
+MODEL="${CODEX_MODEL:-}"
+EFFORT="${CODEX_EFFORT:-}"
+TIER="${CODEX_TIER:-}"
 VERBOSE="${CODEX_VERBOSE:-0}"
+
+if [[ $# -gt 0 ]] && [[ "$1" != --* ]]; then
+  OUTPUT_FILE="$1"
+  shift
+fi
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --model|-m) MODEL="$2"; shift 2 ;;
+    --effort)   EFFORT="$2"; shift 2 ;;
+    --tier)     TIER="$2"; shift 2 ;;
+    --verbose)  VERBOSE="1"; shift ;;
+    *)          echo "ERROR: Unknown option '$1'" >&2; usage ;;
+  esac
+done
+
+if [[ "$TIER" == "fast" ]]; then
+  TIER="priority"
+fi
 
 if ! command -v codex >/dev/null 2>&1; then
   echo "ERROR: 'codex' CLI not found in PATH. Install it via: npm install -g @openai/codex" >&2
@@ -260,6 +295,11 @@ else
   APPROVAL_FLAGS=(--full-auto)
 fi
 
+OVERRIDE_FLAGS=()
+[[ -n "$MODEL" ]]  && OVERRIDE_FLAGS+=(-m "$MODEL")
+[[ -n "$EFFORT" ]] && OVERRIDE_FLAGS+=(-c "model_reasoning_effort=\"${EFFORT}\"")
+[[ -n "$TIER" ]]   && OVERRIDE_FLAGS+=(-c "service_tier=\"${TIER}\"")
+
 run_codex_cmd() {
   local exit_code=0
   if [[ "$VERBOSE" == "1" ]]; then
@@ -299,6 +339,7 @@ case "$MODE" in
     run_codex_cmd codex exec \
       "${APPROVAL_FLAGS[@]}" \
       --color never \
+      ${OVERRIDE_FLAGS[@]+"${OVERRIDE_FLAGS[@]}"} \
       ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
       ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
       "$PROMPT_HEADER" < "$INPUT_FILE"
@@ -312,6 +353,7 @@ case "$MODE" in
       --color never \
       resume \
       --last \
+      ${OVERRIDE_FLAGS[@]+"${OVERRIDE_FLAGS[@]}"} \
       ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
       ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
       - < "$INPUT_FILE"

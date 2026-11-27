@@ -28,6 +28,7 @@ A lightweight, zero-dependency native plugin for **Google Antigravity** that pai
   - **Antigravity (Architecture & Final Review)** owns divergent brainstorming, human-readable specs, edge-case guardrails, scope boundaries, and final diff review.
   - **Codex CLI (Engineering & Self-Test)** owns idiomatic implementation and runs build/lint/unit-test loops on the spot before handing back working code.
 - **Zero External Bridges & 100% Official Channels**: No MCP servers, no reverse proxies, no tmux wrappers — just a native Antigravity plugin invoking the official `codex exec` / `codex exec resume --last` CLI.
+- **Interactive Runtime Picker (`Model` / `Effort` / `Service Tier`)**: Each `/codex` invocation pops up a native Antigravity selector so you can pick the Codex model, reasoning effort (`low` / `medium` / `high` / `xhigh`), and service tier (`priority` / `default` / `flex`) on the fly — defaulting to your `~/.codex/config.toml` in one click (or skipped automatically if specified inline).
 - **Quota-Friendly Quiet Log-Summary Mode**: Offloads multi-file coding and compile/test fix loops into a single shell turn. By default, verbose Codex process logs are written to a `.log` file while only the concise final summary is returned to Antigravity (set `CODEX_VERBOSE=1` for full streaming), paired with concise output discipline and visual-first UI alignment.
 - **Cross-Platform**: Works out of the box on **macOS, Linux, and Windows (PowerShell)**.
 

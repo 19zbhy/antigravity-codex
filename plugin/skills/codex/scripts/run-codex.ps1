@@ -5,9 +5,11 @@
 .DESCRIPTION
   Runs codex exec / resume in quiet log-summary mode by default (writing verbose process
   logs to a sibling .log file and printing only the final summary to stdout to save
-  Antigravity context tokens). Set $env:CODEX_VERBOSE = "1" for live streaming output.
+  Antigravity context tokens). Supports optional -Model, -Effort, and -Tier overrides
+  (or env vars CODEX_MODEL, CODEX_EFFORT, CODEX_TIER). Set $env:CODEX_VERBOSE = "1"
+  for live streaming output.
 .EXAMPLE
-  pwsh -NoProfile -File run-codex.ps1 execute C:\path\to\workspace C:\path\to\implementation_plan.md C:\path\to\codex_last_message.md
+  pwsh -NoProfile -File run-codex.ps1 execute C:\path\to\workspace C:\path\to\implementation_plan.md C:\path\to\codex_last_message.md -Model gpt-6.1-sol -Effort high -Tier priority
   pwsh -NoProfile -File run-codex.ps1 resume  C:\path\to\workspace C:\path\to\codex_fix_instructions.md C:\path\to\codex_last_message.md
 #>
 
@@ -24,11 +26,27 @@ param(
   [string]$InputFile,
 
   [Parameter(Mandatory = $false, Position = 3)]
-  [string]$OutputFile = ""
+  [string]$OutputFile = "",
+
+  [Parameter(Mandatory = $false)]
+  [string]$Model = "",
+
+  [Parameter(Mandatory = $false)]
+  [ValidateSet("", "low", "medium", "high", "xhigh")]
+  [string]$Effort = "",
+
+  [Parameter(Mandatory = $false)]
+  [ValidateSet("", "priority", "default", "flex", "fast")]
+  [string]$Tier = ""
 )
 
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+
+if ([string]::IsNullOrWhiteSpace($Model) -and $env:CODEX_MODEL) { $Model = $env:CODEX_MODEL }
+if ([string]::IsNullOrWhiteSpace($Effort) -and $env:CODEX_EFFORT) { $Effort = $env:CODEX_EFFORT }
+if ([string]::IsNullOrWhiteSpace($Tier) -and $env:CODEX_TIER) { $Tier = $env:CODEX_TIER }
+if ($Tier -eq "fast") { $Tier = "priority" }
 
 $verbose = ($env:CODEX_VERBOSE -eq "1")
 
@@ -69,6 +87,27 @@ if (-not [string]::IsNullOrWhiteSpace($OutputFile)) {
 }
 $outFlags = @("-o", $OutputFile)
 
+$overrideFlags = @()
+$overrideDesc = @()
+if (-not [string]::IsNullOrWhiteSpace($Model)) {
+  $overrideFlags += @("-m", $Model)
+  $overrideDesc += "model=$Model"
+}
+if (-not [string]::IsNullOrWhiteSpace($Effort)) {
+  $overrideFlags += @("-c", "model_reasoning_effort=`"$Effort`"")
+  $overrideDesc += "effort=$Effort"
+}
+if (-not [string]::IsNullOrWhiteSpace($Tier)) {
+  $overrideFlags += @("-c", "service_tier=`"$Tier`"")
+  $overrideDesc += "tier=$Tier"
+}
+
+if ($overrideDesc.Count -gt 0) {
+  Write-Output "==> [Codex Engineer] Runtime overrides: $($overrideDesc -join ' ')"
+} else {
+  Write-Output "==> [Codex Engineer] Runtime config: using ~/.codex/config.toml defaults"
+}
+
 Push-Location -LiteralPath $WorkspaceDir
 try {
   $gitFlags = @()
@@ -99,11 +138,11 @@ try {
     $promptHeader = "You are the Principal Software Engineer in a Google Antigravity + OpenAI Codex workflow. <stdin> contains the user-approved specification defining the goal, UX/business behavior, edge cases, scope boundaries, and acceptance criteria inside $cwd. You own the 'How': inspect the relevant code, design clean and idiomatic engineering implementations matching existing codebase conventions, and strictly respect scope boundaries. Keep command outputs concise: never dump full large files or raw multi-hundred-line logs to stdout; prefer targeted line ranges or summarized checks. Before finishing, run the relevant build, typecheck, lint, and test commands yourself inside the workspace and fix any failures on the spot so you deliver working, verified code in one pass. End with a concise technical summary of files changed and verification commands executed."
     Write-Output "==> [Codex Engineer] Starting implementation & self-test in: $WorkspaceDir"
     Write-Output "==> [Codex Engineer] Spec file: $InputFile"
-    $argsList = @("exec") + $approvalFlags + @("--color", "never") + $gitFlags + $outFlags + @($promptHeader)
+    $argsList = @("exec") + $approvalFlags + @("--color", "never") + $overrideFlags + $gitFlags + $outFlags + @($promptHeader)
   } else {
     Write-Output "==> [Codex Engineer] Resuming latest Codex session in: $WorkspaceDir"
     Write-Output "==> [Codex Engineer] Follow-up review feedback: $InputFile"
-    $argsList = @("exec") + $approvalFlags + @("--color", "never", "resume", "--last") + $gitFlags + $outFlags + @("-")
+    $argsList = @("exec") + $approvalFlags + @("--color", "never", "resume", "--last") + $overrideFlags + $gitFlags + $outFlags + @("-")
   }
 
   if ($verbose) {
