@@ -64,10 +64,10 @@ if "%~1"=="--version" (
 if "%~1"=="login" if "%~2"=="status" (
   if "%MOCK_LOGIN_FAIL%"=="1" (
     echo Not logged in 1>&2
-    exit /b 1
+    exit 1
   )
   echo Logged in using Mock
-  exit /b 0
+  exit 0
 )
 if "%~1"=="exec" if "%~2"=="--help" (
   echo Usage: codex exec [OPTIONS] [PROMPT]
@@ -76,7 +76,7 @@ if "%~1"=="exec" if "%~2"=="--help" (
   if not "%MOCK_NO_JSON%"=="1" echo   --json
   if not "%MOCK_NO_SCHEMA%"=="1" echo   --output-schema
   if not "%MOCK_NO_WORKTREE%"=="1" echo   --worktree
-  exit /b 0
+  exit 0
 )
 echo %*>>"%MOCK_ARGS_LOG%"
 set "OUT_FILE="
@@ -88,7 +88,7 @@ for %%A in (%*) do (
   set "PREV=%%~A"
 )
 set "SID=11111111-2222-3333-4444-555555555555"
-if not "%MOCK_SESSION_ID%"=="" set "SID=%MOCK_SESSION_ID%"
+if defined MOCK_SESSION_ID set "SID=%MOCK_SESSION_ID%"
 if not "%MOCK_NO_SESSION%"=="1" (
   if "!IS_JSON!"=="1" (
     echo {"type":"thread.started","thread_id":"!SID!"}
@@ -96,8 +96,8 @@ if not "%MOCK_NO_SESSION%"=="1" (
     echo session id: !SID!
   )
 )
-if not "%MOCK_EXTRA_LOG%"=="" (
-  echo %MOCK_EXTRA_LOG%
+if defined MOCK_EXTRA_LOG (
+  echo !MOCK_EXTRA_LOG!
 )
 if "!IS_JSON!"=="1" if "%MOCK_EMIT_USAGE%"=="1" (
   echo {"type":"turn.completed","usage":{"input_tokens":1200,"cached_input_tokens":800,"output_tokens":350}}
@@ -105,9 +105,10 @@ if "!IS_JSON!"=="1" if "%MOCK_EMIT_USAGE%"=="1" (
 if not "!OUT_FILE!"=="" if not "%MOCK_NO_SUMMARY%"=="1" (
   echo Mock summary completed.>"!OUT_FILE!"
 )
-exit /b 0
+exit 0
 '@
-  [System.IO.File]::WriteAllText((Join-Path $mockBin "codex.cmd"), $mockCodex, [System.Text.UTF8Encoding]::new($false))
+  $mockCodexCrlf = ($mockCodex -replace "`r?`n", "`r`n")
+  [System.IO.File]::WriteAllText((Join-Path $mockBin "codex.cmd"), $mockCodexCrlf, [System.Text.UTF8Encoding]::new($false))
 
   $origPath = $env:Path
   $env:Path = "$mockBin;$env:Path"
@@ -263,7 +264,7 @@ respect_system_proxy = true
   $docFailRc = $LASTEXITCODE
   $env:MOCK_LOGIN_FAIL = ""
   Assert-Eq "doctor fails with exit 1 when not logged in" "1" "$docFailRc"
-  Assert-Contains "doctor failure mentions codex auth" "codex auth" $docFail
+  Assert-Contains "doctor failure mentions codex auth" "[FAIL] codex auth" $docFail
 
   if (Test-Path $argsLog) { Remove-Item $argsLog -Force }
   $structOut = Join-Path $tmpRoot "structured\last.md"
