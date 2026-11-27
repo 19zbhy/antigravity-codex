@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Ensure Homebrew, npm global bin, and ChatGPT desktop codex-cli paths are available in GUI shells
-export PATH="/opt/homebrew/bin:/usr/local/bin:${HOME}/.npm-global/bin:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS:${PATH}"
+# Append Homebrew, npm global bin, and ChatGPT desktop codex-cli paths as fallbacks in GUI shells
+export PATH="${PATH}:/opt/homebrew/bin:/usr/local/bin:${HOME}/.npm-global/bin:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_MD_PATH="${SCRIPT_DIR}/../SKILL.md"
@@ -15,12 +15,12 @@ usage() {
 Usage:
   run-codex.sh list-options
   run-codex.sh sync-options [skill_md_path]
-  run-codex.sh execute <workspace_dir> <plan_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--worktree] [--no-isolate]
-  run-codex.sh review  <workspace_dir> <spec_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate]
-  run-codex.sh resume  <workspace_dir> <fix_file>  [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate]
+  run-codex.sh execute <workspace_dir> <plan_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--worktree] [--no-isolate] [--verbose]
+  run-codex.sh review  <workspace_dir> <spec_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate] [--verbose]
+  run-codex.sh resume  <workspace_dir> <fix_file>  [output_last_message_file] [--session <id>] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate] [--verbose]
 
 Environment variables (overridden by CLI flags):
-  CODEX_MODEL       Override model name (defaults to ~/.codex/config.toml)
+  CODEX_MODEL       Override model name (defaults to top-level ~/.codex/config.toml)
   CODEX_EFFORT      Override model_reasoning_effort (e.g. low | medium | high | xhigh | max | ultra)
   CODEX_TIER        Override service_tier (priority | default | flex | fast)
   CODEX_ISOLATE=0   Disable --ignore-user-config whitelist isolation (load full desktop config.toml)
@@ -29,19 +29,95 @@ EOF
   exit 2
 }
 
-read_toml_str() {
+# Read ONLY top-level string keys (stops at the first [section] header so [profiles.*] never leaks)
+read_toml_top_level() {
   local key="$1"
   local file="$2"
-  if [[ -f "$file" ]]; then
-    grep -E "^[[:space:]]*${key}[[:space:]]*=" "$file" | head -n 1 | sed -E 's/^[^=]*=[[:space:]]*"([^"]*)".*/\1/' || true
+  if [[ ! -f "$file" ]]; then
+    return 0
   fi
+  awk -v k="$key" '
+    /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+    /^[[:space:]]*\[/ { exit }
+    {
+      line = $0
+      sub(/^[[:space:]]+/, "", line)
+      if (index(line, k) == 1) {
+        rest = substr(line, length(k) + 1)
+        if (rest ~ /^[[:space:]]*=/) {
+          sub(/^[[:space:]]*=[[:space:]]*/, "", rest)
+          if (substr(rest, 1, 1) == "\"") {
+            rest = substr(rest, 2)
+            sub(/".*/, "", rest)
+            print rest
+            exit
+          } else if (substr(rest, 1, 1) == "\047") {
+            rest = substr(rest, 2)
+            sub(/\047.*/, "", rest)
+            print rest
+            exit
+          }
+        }
+      }
+    }
+  ' "$file"
+}
+
+# Check a boolean key strictly inside the [features] TOML table
+has_toml_feature_true() {
+  local key="$1"
+  local file="$2"
+  if [[ ! -f "$file" ]]; then
+    return 1
+  fi
+  awk -v k="$key" '
+    /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+    /^[[:space:]]*\[features\][[:space:]]*(#.*)?$/ { in_feat = 1; next }
+    /^[[:space:]]*\[/ { in_feat = 0; next }
+    in_feat {
+      line = $0
+      sub(/^[[:space:]]+/, "", line)
+      if (index(line, k) == 1) {
+        rest = substr(line, length(k) + 1)
+        if (rest ~ /^[[:space:]]*=[[:space:]]*true([[:space:]]*(#.*)?)?$/) {
+          found = 1
+          exit
+        }
+      }
+    }
+    END { exit (found ? 0 : 1) }
+  ' "$file"
+}
+
+extract_session_id() {
+  local log_file="$1"
+  if [[ ! -f "$log_file" ]]; then
+    return 0
+  fi
+  awk '
+    {
+      low = tolower($0)
+      if (match(low, /session[[:space:]_-]*id[[:space:]]*[:=][[:space:]]*"?[0-9a-f-]{8,}"?/)) {
+        val = substr($0, RSTART, RLENGTH)
+        sub(/^[^:=]*[:=][[:space:]]*"?/, "", val)
+        sub(/"?$/, "", val)
+        sid = val
+      } else if (match(low, /"thread_id"[[:space:]]*:[[:space:]]*"[^"]+"/)) {
+        val = substr($0, RSTART, RLENGTH)
+        sub(/^[^:]*:[[:space:]]*"/, "", val)
+        sub(/"$/, "", val)
+        sid = val
+      }
+    }
+    END { if (sid != "") print sid }
+  ' "$log_file"
 }
 
 emit_options() {
   local default_model default_effort default_tier
-  default_model="$(read_toml_str "model" "$CONFIG_FILE")"
-  default_effort="$(read_toml_str "model_reasoning_effort" "$CONFIG_FILE")"
-  default_tier="$(read_toml_str "service_tier" "$CONFIG_FILE")"
+  default_model="$(read_toml_top_level "model" "$CONFIG_FILE")"
+  default_effort="$(read_toml_top_level "model_reasoning_effort" "$CONFIG_FILE")"
+  default_tier="$(read_toml_top_level "service_tier" "$CONFIG_FILE")"
 
   echo "- default_model: ${default_model:-default}"
   echo "- default_effort: ${default_effort:-default}"
@@ -107,7 +183,8 @@ sync_options_into_skill() {
   local opts_tmp
   opts_tmp="$(mktemp "${TMPDIR:-/tmp}/codex-opts.XXXXXX")"
   emit_options > "$opts_tmp"
-  local out_tmp="${target_skill}.sync.tmp"
+  local out_tmp
+  out_tmp="$(mktemp "${TMPDIR:-/tmp}/codex-skill.XXXXXX")"
   awk -v opts_file="$opts_tmp" '
     /<!-- CODEX_LIVE_OPTIONS_START -->/ {
       print
@@ -153,6 +230,7 @@ INPUT_FILE="$2"
 shift 2
 
 OUTPUT_FILE=""
+SESSION_ID=""
 MODEL="${CODEX_MODEL:-}"
 EFFORT="${CODEX_EFFORT:-}"
 TIER="${CODEX_TIER:-}"
@@ -181,6 +259,11 @@ while [[ $# -gt 0 ]]; do
     --tier)
       [[ $# -ge 2 ]] || { echo "ERROR: --tier requires a value" >&2; exit 2; }
       TIER="$2"
+      shift 2
+      ;;
+    --session)
+      [[ $# -ge 2 ]] || { echo "ERROR: --session requires a value" >&2; exit 2; }
+      SESSION_ID="$2"
       shift 2
       ;;
     --worktree)
@@ -222,27 +305,32 @@ if [[ ! -f "$INPUT_FILE" ]] || [[ ! -s "$INPUT_FILE" ]]; then
   exit 2
 fi
 
-CLEANUP_TMP_OUT=0
+# Portable BSD (macOS) & GNU (Linux) unique temp directory when OUTPUT_FILE is omitted
+TMP_RUN_DIR=""
 if [[ -n "$OUTPUT_FILE" ]]; then
   mkdir -p "$(dirname "$OUTPUT_FILE")"
   LOG_FILE="${OUTPUT_FILE%.*}.log"
+  SESSION_FILE="${OUTPUT_FILE%.*}.session_id"
 else
-  OUTPUT_FILE="$(mktemp "${TMPDIR:-/tmp}/codex-last-message.XXXXXX.md")"
-  LOG_FILE="${OUTPUT_FILE%.md}.log"
-  CLEANUP_TMP_OUT=1
+  TMP_RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/codex-run.XXXXXX")"
+  OUTPUT_FILE="${TMP_RUN_DIR}/last_message.md"
+  LOG_FILE="${TMP_RUN_DIR}/run.log"
+  SESSION_FILE="${TMP_RUN_DIR}/session.id"
 fi
 OUT_FLAGS=(-o "$OUTPUT_FILE")
 
 cleanup() {
-  if [[ "$CLEANUP_TMP_OUT" -eq 1 ]]; then
-    rm -f "$OUTPUT_FILE"
+  if [[ -n "$TMP_RUN_DIR" ]] && [[ "${RUN_FAILED:-0}" -eq 0 ]]; then
+    rm -rf "$TMP_RUN_DIR"
   fi
 }
 trap cleanup EXIT
 
 cd "$WORKSPACE_DIR"
 
+IS_GIT_REPO=0
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  IS_GIT_REPO=1
   GIT_FLAGS=()
 else
   GIT_FLAGS=(--skip-git-repo-check)
@@ -250,35 +338,44 @@ fi
 
 EXEC_HELP="$(codex exec --help 2>&1 || true)"
 
-# Approval / sandbox flags based on mode
+# Approval / sandbox flags based on mode (--approve-for-me already implies workspace-write and conflicts with -s)
 if [[ "$MODE" == "review" ]]; then
   APPROVAL_FLAGS=(-s read-only)
 elif echo "$EXEC_HELP" | grep -q -- '--approve-for-me'; then
-  APPROVAL_FLAGS=(--approve-for-me -s workspace-write)
+  APPROVAL_FLAGS=(--approve-for-me)
 else
   APPROVAL_FLAGS=(--full-auto)
 fi
 
+# Fail-closed --worktree check: never silently fall back to the main workspace when isolation was requested
 WORKTREE_FLAGS=()
-if [[ "$USE_WORKTREE" == "1" ]] && [[ "$MODE" == "execute" ]]; then
-  if echo "$EXEC_HELP" | grep -q -- '--worktree'; then
-    WORKTREE_FLAGS=(--worktree)
-  else
-    echo "WARN: Current codex CLI does not support --worktree; running in current workspace." >&2
+if [[ "$USE_WORKTREE" == "1" ]]; then
+  if [[ "$MODE" != "execute" ]]; then
+    echo "ERROR: --worktree is only supported with 'execute'." >&2
+    exit 2
   fi
+  if [[ "$IS_GIT_REPO" -ne 1 ]]; then
+    echo "ERROR: --worktree requires a Git repository, but '$WORKSPACE_DIR' is not inside a Git work tree." >&2
+    exit 2
+  fi
+  if ! echo "$EXEC_HELP" | grep -q -- '--worktree'; then
+    echo "ERROR: --worktree was requested, but the installed codex CLI does not support --worktree. Refusing to fall back to the main workspace." >&2
+    exit 2
+  fi
+  WORKTREE_FLAGS=(--worktree)
 fi
 
-# Whitelist isolation (--ignore-user-config): skip heavy desktop plugins & MCPs to save ~45% Codex tokens
+# Whitelist isolation (--ignore-user-config): skip desktop plugins & MCPs while keeping auth.json
 ISOLATE_FLAGS=()
-CFG_PROVIDER="$(read_toml_str "model_provider" "$CONFIG_FILE")"
+CFG_PROVIDER="$(read_toml_top_level "model_provider" "$CONFIG_FILE")"
 if [[ "$ISOLATE" == "1" ]] && echo "$EXEC_HELP" | grep -q -- '--ignore-user-config'; then
   # Only isolate automatically when using default/openai provider so custom provider blocks remain intact
   if [[ -z "$CFG_PROVIDER" ]] || [[ "$CFG_PROVIDER" == "openai" ]]; then
     ISOLATE_FLAGS=(--ignore-user-config)
-    [[ -z "$MODEL" ]]  && MODEL="$(read_toml_str "model" "$CONFIG_FILE")"
-    [[ -z "$EFFORT" ]] && EFFORT="$(read_toml_str "model_reasoning_effort" "$CONFIG_FILE")"
-    [[ -z "$TIER" ]]   && TIER="$(read_toml_str "service_tier" "$CONFIG_FILE")"
-    if [[ -f "$CONFIG_FILE" ]] && grep -qE '^[[:space:]]*respect_system_proxy[[:space:]]*=[[:space:]]*true' "$CONFIG_FILE"; then
+    [[ -z "$MODEL" ]]  && MODEL="$(read_toml_top_level "model" "$CONFIG_FILE")"
+    [[ -z "$EFFORT" ]] && EFFORT="$(read_toml_top_level "model_reasoning_effort" "$CONFIG_FILE")"
+    [[ -z "$TIER" ]]   && TIER="$(read_toml_top_level "service_tier" "$CONFIG_FILE")"
+    if has_toml_feature_true "respect_system_proxy" "$CONFIG_FILE"; then
       ISOLATE_FLAGS+=(-c "features.respect_system_proxy=true")
     fi
   else
@@ -311,15 +408,23 @@ fi
 run_codex_cmd() {
   local exit_code=0
   if [[ "$VERBOSE" == "1" ]]; then
-    "$@" || exit_code=$?
+    "$@" 2>&1 | tee "$LOG_FILE" || exit_code=${PIPESTATUS[0]}
   else
     "$@" >"$LOG_FILE" 2>&1 || exit_code=$?
+  fi
+
+  # Capture exact Codex session ID from log for deterministic resume
+  local captured_sid=""
+  captured_sid="$(extract_session_id "$LOG_FILE" || true)"
+  if [[ -n "$captured_sid" ]]; then
+    printf '%s\n' "$captured_sid" > "$SESSION_FILE"
   fi
 
   # Silently refresh embedded live model catalog in SKILL.md for instant next-turn picker
   sync_options_into_skill "$SKILL_MD_PATH" 2>/dev/null || true
 
   if [[ "$exit_code" -ne 0 ]]; then
+    RUN_FAILED=1
     echo "" >&2
     echo "ERROR: codex exited with code $exit_code." >&2
     if [[ "$VERBOSE" != "1" ]] && [[ -f "$LOG_FILE" ]]; then
@@ -330,6 +435,10 @@ run_codex_cmd() {
     fi
     echo "Hint: If this is an authentication error, run 'codex login' in your terminal once to sign in." >&2
     exit "$exit_code"
+  fi
+
+  if [[ -n "$captured_sid" ]]; then
+    echo "==> [Codex Engineer] Session ID: $captured_sid (saved to $SESSION_FILE)"
   fi
 
   if [[ "$VERBOSE" != "1" ]]; then
@@ -379,18 +488,35 @@ case "$MODE" in
     ;;
 
   resume)
-    echo "==> [Codex Engineer] Resuming latest Codex session in: $WORKSPACE_DIR"
+    if [[ -z "$SESSION_ID" ]] && [[ -f "$SESSION_FILE" ]]; then
+      SESSION_ID="$(head -n 1 "$SESSION_FILE" | tr -d '[:space:]' || true)"
+    fi
     echo "==> [Codex Engineer] Follow-up review feedback: $INPUT_FILE"
-    run_codex_cmd codex exec \
-      "${APPROVAL_FLAGS[@]}" \
-      --color never \
-      resume \
-      --last \
-      ${ISOLATE_FLAGS[@]+"${ISOLATE_FLAGS[@]}"} \
-      ${OVERRIDE_FLAGS[@]+"${OVERRIDE_FLAGS[@]}"} \
-      ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
-      ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
-      - < "$INPUT_FILE"
+    if [[ -n "$SESSION_ID" ]]; then
+      echo "==> [Codex Engineer] Resuming pinned Codex session '${SESSION_ID}' in: $WORKSPACE_DIR"
+      run_codex_cmd codex exec \
+        "${APPROVAL_FLAGS[@]}" \
+        --color never \
+        resume \
+        ${ISOLATE_FLAGS[@]+"${ISOLATE_FLAGS[@]}"} \
+        ${OVERRIDE_FLAGS[@]+"${OVERRIDE_FLAGS[@]}"} \
+        ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
+        ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
+        "$SESSION_ID" \
+        - < "$INPUT_FILE"
+    else
+      echo "==> [Codex Engineer] No pinned session ID found; falling back to --last in: $WORKSPACE_DIR"
+      run_codex_cmd codex exec \
+        "${APPROVAL_FLAGS[@]}" \
+        --color never \
+        resume \
+        --last \
+        ${ISOLATE_FLAGS[@]+"${ISOLATE_FLAGS[@]}"} \
+        ${OVERRIDE_FLAGS[@]+"${OVERRIDE_FLAGS[@]}"} \
+        ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
+        ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
+        - < "$INPUT_FILE"
+    fi
     ;;
 
   *)

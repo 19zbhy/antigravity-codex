@@ -13,6 +13,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/19zbhy/antigravity-codex/actions/workflows/ci.yml">
+    <img src="https://github.com/19zbhy/antigravity-codex/actions/workflows/ci.yml/badge.svg" alt="CI" />
+  </a>
+</p>
+
+<p align="center">
   <img src="./assets/workflow-preview.png" alt="Antigravity x Codex Workflow" width="100%" />
 </p>
 
@@ -28,10 +34,10 @@ A lightweight, zero-dependency native plugin for **Google Antigravity** that pai
   - **Antigravity (Architecture & Final Review)** owns divergent brainstorming, human-readable specs, edge-case guardrails, scope boundaries, and final diff review.
   - **Codex CLI (Engineering & Self-Test)** owns idiomatic implementation and runs build/lint/unit-test loops on the spot before handing back working code.
 - **Zero External Bridges & 100% Official Channels**: No MCP servers, no reverse proxies, no tmux wrappers — just a native Antigravity plugin invoking the official `codex exec` / `codex exec resume --last` CLI.
-- **Auto-Syncing Runtime Picker (`Model` / `Effort` / `Service Tier`)**: Each `/codex` invocation dynamically reads your live `~/.codex/models_cache.json` and `~/.codex/config.toml` (via `run-codex.sh list-options`) to pop up a native Antigravity selector with all currently available Codex models, supported reasoning levels (e.g. `low` → `ultra`), and service tiers (`priority` / `default` / `flex`) — automatically staying in sync whenever Codex updates, with zero hardcoded model lists.
-- **Whitelist Isolation (`--ignore-user-config`) & Quiet Log-Summary Mode**: By default, `run-codex` skips heavy desktop plugins/MCP servers in `~/.codex/config.toml` (whitelisting only model, reasoning effort, service tier, and proxy settings) to slash Codex token overhead, and writes verbose logs to a `.log` file while returning only the concise final summary to Antigravity (use `--no-isolate` or `CODEX_VERBOSE=1` anytime).
-- **Read-Only Audit (`review`) & Worktree Isolation (`--worktree`)**: Supports strict `-s read-only` deep code reviews alongside `workspace-write` implementation, scenario-specific task templates (`implementation` / `bugfix` / `review`), and optional `--worktree` branch isolation.
-- **Cross-Platform**: Works out of the box on **macOS, Linux, and Windows (PowerShell)**.
+- **Local-Cache-Backed Runtime Picker (`Model` / `Effort` / `Service Tier`)**: Syncs the local `~/.codex/models_cache.json` catalog and top-level `~/.codex/config.toml` defaults into `SKILL.md` on install and after each run, popping up a native Antigravity selector with zero extra pre-flight tool turns (and automatically refreshing as your local Codex CLI cache updates).
+- **Whitelist Isolation (`--ignore-user-config`) & Quiet Log-Summary Mode**: By default, `run-codex` skips desktop plugins and MCP servers in `~/.codex/config.toml` (whitelisting only top-level `model`, `model_reasoning_effort`, `service_tier`, and `[features].respect_system_proxy`) to reduce Codex prompt overhead, and writes verbose process logs to a sibling `.log` file while printing only the final summary to stdout (`--no-isolate` / `CODEX_VERBOSE=1` supported).
+- **Pinned Session Resume, Read-Only Audit (`review`), & Fail-Closed `--worktree`**: Captures each run's exact Codex session ID into a sibling `.session_id` file so `resume` targets the exact task session (falling back to `--last` only when unavailable), supports strict `-s read-only` code reviews, and fails closed if `--worktree` is requested on an unsupported CLI or non-Git directory.
+- **Cross-Platform & CI-Verified**: Tested in GitHub Actions across **Ubuntu, macOS, and Windows (PowerShell)** with mocked Codex CLI regression suites (`tests/test-run-codex.sh` and `tests/test-run-codex.ps1`).
 
 ---
 

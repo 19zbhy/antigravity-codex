@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unix-tests:
+    name: Unix Runner Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check bash syntax
+        run: |
+          bash -n install.sh
+          bash -n plugin/skills/codex/scripts/run-codex.sh
+          bash -n tests/test-run-codex.sh
+      - name: Run regression tests
+        run: bash tests/test-run-codex.sh
+
+  windows-tests:
+    name: Windows PowerShell Tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run PowerShell regression tests
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File tests/test-run-codex.ps1

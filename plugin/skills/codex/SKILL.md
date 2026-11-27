@@ -23,7 +23,12 @@ description: >-
 3. 记住用户的选择（选“沿用本机默认配置”的项在 Phase 3 中不传覆盖参数，直接沿用 `~/.codex/config.toml`）。每次 `run-codex.sh` 执行后会自动静默刷新下方快照，随 Codex 更新保持同步。
 
 <!-- CODEX_LIVE_OPTIONS_START -->
-- (not synced yet)
+- default_model: deepseek-coder
+- default_effort: default
+- default_tier: default
+- models: (run codex once to populate ~/.codex/models_cache.json)
+- efforts: low, medium, high, xhigh
+- service_tiers: priority (快速/Fast), default (标准), flex (弹性省流)
 <!-- CODEX_LIVE_OPTIONS_END -->
 
 ---
@@ -71,8 +76,10 @@ description: >-
 <USER_HOME>/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh review /absolute/path/to/workspace /absolute/path/to/artifact_dir/scratch/review_spec.md /absolute/path/to/artifact_dir/scratch/codex_last_message.md --model <model> --effort <effort> --tier <tier>
 ```
 
-- **白名单轻量隔离（默认开启）**：脚本自动使用 `--ignore-user-config` 跳过桌面端 `~/.codex/config.toml` 里的重型插件与 MCP（仅白名单透传模型、推理强度、服务档位与代理），可显著降低 Codex Token 消耗并提速（如需加载完整桌面配置可加 `--no-isolate`）。
-- **静默摘要模式（默认开启）**：完整过程日志会落盘到同目录的 `*.log` 文件，终端仅回传最终摘要（`codex_last_message.md`），大幅减少 Antigravity 侧的无效上下文消耗（如需实时查看完整过程日志，可在调试时设置 `CODEX_VERBOSE=1`）。
+- **白名单轻量隔离（默认开启）**：脚本自动使用 `--ignore-user-config` 跳过桌面端 `~/.codex/config.toml` 里的重型插件与 MCP（仅白名单透传顶层 `model`、`model_reasoning_effort`、`service_tier` 与 `[features].respect_system_proxy`），以降低 Codex 启动与上下文开销（如需加载完整桌面配置可加 `--no-isolate`）。
+- **严格隔离失败即中止**：若传入 `--worktree` 但当前目录非 Git 仓库或 CLI 不支持，脚本会直接报错退出，绝不降级写主工作区。
+- **精确会话绑定**：`execute` 成功后会自动从日志提取本次 `session_id` 写入同目录的 `*.session_id`；后续 `resume` 只要传入同一个 `codex_last_message.md` 路径，即可精确续接该任务会话（亦支持 `--session <id>`），避免多任务并发时 `--last` 串会话。
+- **静默摘要模式（默认开启）**：完整过程日志会落盘到同目录的 `*.log` 文件，终端仅回传最终摘要（`codex_last_message.md`），减少 Antigravity 侧的无效上下文消耗（如需实时查看完整过程日志，可在调试时设置 `CODEX_VERBOSE=1`）。
 - 要求 Codex 遵守**精简输出纪律**：不要向 stdout 倾倒整份大文件或数百行原始日志，优先按行号定向查看或汇总验证结果。
 - 若脚本提示尚未登录（`codex login`），暂停并请用户在终端运行一次 `codex login` 授权后再继续。
 

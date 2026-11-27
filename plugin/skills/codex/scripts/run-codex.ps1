@@ -4,9 +4,8 @@
   Windows PowerShell runner for the Google Antigravity x OpenAI Codex workflow.
 .DESCRIPTION
   Supports 'list-options', 'sync-options', 'execute' (workspace-write), 'review' (read-only),
-  and 'resume'. Enables --ignore-user-config whitelist isolation by default (skipping heavy
-  desktop plugins/MCPs while preserving model, effort, tier, and proxy settings) and runs in
-  quiet log-summary mode.
+  and 'resume' (pinned session ID with --last fallback). Enables --ignore-user-config whitelist
+  isolation by default and fails closed when --worktree is requested but unsupported.
 .EXAMPLE
   pwsh -NoProfile -File run-codex.ps1 list-options
   pwsh -NoProfile -File run-codex.ps1 execute C:\path\to\workspace C:\path\to\implementation_plan.md C:\path\to\codex_last_message.md -Model gpt-6.2-sol -Effort high -Tier priority
@@ -30,6 +29,9 @@ param(
   [string]$OutputFile = "",
 
   [Parameter(Mandatory = $false)]
+  [string]$Session = "",
+
+  [Parameter(Mandatory = $false)]
   [string]$Model = "",
 
   [Parameter(Mandatory = $false)]
@@ -40,7 +42,8 @@ param(
   [string]$Tier = "",
 
   [switch]$Worktree,
-  [switch]$NoIsolate
+  [switch]$NoIsolate,
+  [switch]$VerboseOutput
 )
 
 $ErrorActionPreference = "Stop"
@@ -50,19 +53,51 @@ $codexDir = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME ".co
 $configFile = Join-Path $codexDir "config.toml"
 $cacheFile = Join-Path $codexDir "models_cache.json"
 
-function Get-TomlStringValue([string]$Key, [string]$Path) {
+# Read ONLY top-level string keys (stops at the first [section] header)
+function Get-TomlTopLevelString([string]$Key, [string]$Path) {
   if (-not (Test-Path -LiteralPath $Path)) { return "" }
-  $pattern = "^\s*$([regex]::Escape($Key))\s*=\s*`"([^`"]*)`""
+  $dqPattern = "^\s*$([regex]::Escape($Key))\s*=\s*`"([^`"]*)`""
+  $sqPattern = "^\s*$([regex]::Escape($Key))\s*=\s*'([^']*)'"
   foreach ($line in (Get-Content -LiteralPath $Path -Encoding UTF8)) {
-    if ($line -match $pattern) { return $Matches[1] }
+    if ($line -match '^\s*#' -or $line -match '^\s*$') { continue }
+    if ($line -match '^\s*\[') { break }
+    if ($line -match $dqPattern) { return $Matches[1] }
+    if ($line -match $sqPattern) { return $Matches[1] }
   }
   return ""
 }
 
+# Check boolean key strictly inside the [features] section
+function Test-TomlFeatureTrue([string]$Key, [string]$Path) {
+  if (-not (Test-Path -LiteralPath $Path)) { return $false }
+  $inFeatures = $false
+  $pattern = "^\s*$([regex]::Escape($Key))\s*=\s*true(\s*(#.*)?)?$"
+  foreach ($line in (Get-Content -LiteralPath $Path -Encoding UTF8)) {
+    if ($line -match '^\s*#' -or $line -match '^\s*$') { continue }
+    if ($line -match '^\s*\[features\]\s*(#.*)?$') { $inFeatures = $true; continue }
+    if ($line -match '^\s*\[') { $inFeatures = $false; continue }
+    if ($inFeatures -and ($line -match $pattern)) { return $true }
+  }
+  return $false
+}
+
+function Get-SessionIdFromLog([string]$LogPath) {
+  if (-not (Test-Path -LiteralPath $LogPath)) { return "" }
+  $sid = ""
+  foreach ($line in (Get-Content -LiteralPath $LogPath -Encoding UTF8)) {
+    if ($line -match '(?i)session[\s_-]*id\s*[:=]\s*"?([0-9a-f-]{8,})"?') {
+      $sid = $Matches[1]
+    } elseif ($line -match '(?i)"thread_id"\s*:\s*"([^"]+)"') {
+      $sid = $Matches[1]
+    }
+  }
+  return $sid
+}
+
 function Get-CodexOptionsLines {
-  $defaultModel = Get-TomlStringValue "model" $configFile
-  $defaultEffort = Get-TomlStringValue "model_reasoning_effort" $configFile
-  $defaultTier = Get-TomlStringValue "service_tier" $configFile
+  $defaultModel = Get-TomlTopLevelString "model" $configFile
+  $defaultEffort = Get-TomlTopLevelString "model_reasoning_effort" $configFile
+  $defaultTier = Get-TomlTopLevelString "service_tier" $configFile
 
   $lines = [System.Collections.Generic.List[string]]::new()
   $lines.Add("- default_model: $(if ($defaultModel) { $defaultModel } else { 'default' })")
@@ -118,12 +153,14 @@ if ([string]::IsNullOrWhiteSpace($Tier) -and $env:CODEX_TIER) { $Tier = $env:COD
 if ($Tier -eq "fast") { $Tier = "priority" }
 
 $isolate = (-not $NoIsolate) -and ($env:CODEX_ISOLATE -ne "0")
-$verbose = ($env:CODEX_VERBOSE -eq "1")
+$verbose = $VerboseOutput -or ($env:CODEX_VERBOSE -eq "1")
 
-# Ensure common global npm bin path is available in non-interactive shells
-$npmGlobal = Join-Path $env:APPDATA "npm"
-if ((Test-Path $npmGlobal) -and ($env:Path -notlike "*$npmGlobal*")) {
-  $env:Path = "$npmGlobal;$env:Path"
+# Append common global npm bin path as fallback in non-interactive shells
+if ($env:APPDATA) {
+  $npmGlobal = Join-Path $env:APPDATA "npm"
+  if ((Test-Path $npmGlobal) -and ($env:Path -notlike "*$npmGlobal*")) {
+    $env:Path = "$env:Path;$npmGlobal"
+  }
 }
 
 $codexCmd = Get-Command codex -ErrorAction SilentlyContinue
@@ -142,20 +179,23 @@ if ([string]::IsNullOrWhiteSpace($InputFile) -or -not (Test-Path -LiteralPath $I
   exit 2
 }
 
-$cleanupTmpOut = $false
+$tmpRunDir = ""
 if (-not [string]::IsNullOrWhiteSpace($OutputFile)) {
   $outDir = Split-Path -Parent $OutputFile
   if ($outDir -and -not (Test-Path -LiteralPath $outDir)) {
     New-Item -ItemType Directory -Path $outDir -Force | Out-Null
   }
   $logFile = [System.IO.Path]::ChangeExtension($OutputFile, ".log")
+  $sessionFile = [System.IO.Path]::ChangeExtension($OutputFile, ".session_id")
 } else {
-  $tmpBase = Join-Path ([System.IO.Path]::GetTempPath()) ("codex-last-message-" + [guid]::NewGuid().ToString("N"))
-  $OutputFile = "$tmpBase.md"
-  $logFile = "$tmpBase.log"
-  $cleanupTmpOut = $true
+  $tmpRunDir = Join-Path ([System.IO.Path]::GetTempPath()) ("codex-run-" + [guid]::NewGuid().ToString("N"))
+  New-Item -ItemType Directory -Path $tmpRunDir -Force | Out-Null
+  $OutputFile = Join-Path $tmpRunDir "last_message.md"
+  $logFile = Join-Path $tmpRunDir "run.log"
+  $sessionFile = Join-Path $tmpRunDir "session.id"
 }
 $outFlags = @("-o", $OutputFile)
+$runFailed = $false
 
 Push-Location -LiteralPath $WorkspaceDir
 try {
@@ -176,29 +216,39 @@ try {
   if ($Mode -eq "review") {
     $approvalFlags = @("-s", "read-only")
   } elseif ($helpText -match "--approve-for-me") {
-    $approvalFlags = @("--approve-for-me", "-s", "workspace-write")
+    # --approve-for-me already implies workspace-write and conflicts with -s
+    $approvalFlags = @("--approve-for-me")
   } else {
     $approvalFlags = @("--full-auto")
   }
 
+  # Fail-closed --worktree check: never silently fall back to main workspace
   $worktreeFlags = @()
-  if ($Worktree -and ($Mode -eq "execute")) {
-    if ($helpText -match "--worktree") {
-      $worktreeFlags = @("--worktree")
-    } else {
-      Write-Warning "Current codex CLI does not support --worktree; running in current workspace."
+  if ($Worktree) {
+    if ($Mode -ne "execute") {
+      [Console]::Error.WriteLine("ERROR: -Worktree is only supported with 'execute'.")
+      exit 2
     }
+    if (-not $isGitRepo) {
+      [Console]::Error.WriteLine("ERROR: -Worktree requires a Git repository, but '$WorkspaceDir' is not inside a Git work tree.")
+      exit 2
+    }
+    if ($helpText -notmatch "--worktree") {
+      [Console]::Error.WriteLine("ERROR: -Worktree was requested, but the installed codex CLI does not support --worktree. Refusing to fall back to the main workspace.")
+      exit 2
+    }
+    $worktreeFlags = @("--worktree")
   }
 
   $isolateFlags = @()
-  $cfgProvider = Get-TomlStringValue "model_provider" $configFile
+  $cfgProvider = Get-TomlTopLevelString "model_provider" $configFile
   if ($isolate -and ($helpText -match "--ignore-user-config")) {
     if ([string]::IsNullOrWhiteSpace($cfgProvider) -or ($cfgProvider -eq "openai")) {
       $isolateFlags = @("--ignore-user-config")
-      if ([string]::IsNullOrWhiteSpace($Model))  { $Model  = Get-TomlStringValue "model" $configFile }
-      if ([string]::IsNullOrWhiteSpace($Effort)) { $Effort = Get-TomlStringValue "model_reasoning_effort" $configFile }
-      if ([string]::IsNullOrWhiteSpace($Tier))   { $Tier   = Get-TomlStringValue "service_tier" $configFile }
-      if ((Test-Path -LiteralPath $configFile) -and ((Get-Content -LiteralPath $configFile -Raw -Encoding UTF8) -match '(?m)^\s*respect_system_proxy\s*=\s*true')) {
+      if ([string]::IsNullOrWhiteSpace($Model))  { $Model  = Get-TomlTopLevelString "model" $configFile }
+      if ([string]::IsNullOrWhiteSpace($Effort)) { $Effort = Get-TomlTopLevelString "model_reasoning_effort" $configFile }
+      if ([string]::IsNullOrWhiteSpace($Tier))   { $Tier   = Get-TomlTopLevelString "service_tier" $configFile }
+      if (Test-TomlFeatureTrue "respect_system_proxy" $configFile) {
         $isolateFlags += @("-c", "features.respect_system_proxy=true")
       }
     } else {
@@ -244,23 +294,37 @@ try {
     Write-Output "==> [Codex Reviewer] Audit spec: $InputFile"
     $argsList = @("exec") + $approvalFlags + @("--color", "never") + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @($promptHeader)
   } else {
-    Write-Output "==> [Codex Engineer] Resuming latest Codex session in: $WorkspaceDir"
+    if ([string]::IsNullOrWhiteSpace($Session) -and (Test-Path -LiteralPath $sessionFile)) {
+      $Session = ((Get-Content -LiteralPath $sessionFile -TotalCount 1 -Encoding UTF8) -join "").Trim()
+    }
     Write-Output "==> [Codex Engineer] Follow-up review feedback: $InputFile"
-    $argsList = @("exec") + $approvalFlags + @("--color", "never", "resume", "--last") + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @("-")
+    if (-not [string]::IsNullOrWhiteSpace($Session)) {
+      Write-Output "==> [Codex Engineer] Resuming pinned Codex session '$Session' in: $WorkspaceDir"
+      $argsList = @("exec") + $approvalFlags + @("--color", "never", "resume") + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @($Session, "-")
+    } else {
+      Write-Output "==> [Codex Engineer] No pinned session ID found; falling back to --last in: $WorkspaceDir"
+      $argsList = @("exec") + $approvalFlags + @("--color", "never", "resume", "--last") + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @("-")
+    }
   }
 
   if ($verbose) {
-    $stdinContent | & codex @argsList
+    $stdinContent | & codex @argsList 2>&1 | Tee-Object -FilePath $logFile
     $exitCode = $LASTEXITCODE
   } else {
     $stdinContent | & codex @argsList *> $logFile
     $exitCode = $LASTEXITCODE
   }
 
+  $capturedSid = Get-SessionIdFromLog $logFile
+  if (-not [string]::IsNullOrWhiteSpace($capturedSid)) {
+    [System.IO.File]::WriteAllText($sessionFile, "$capturedSid`n", [System.Text.UTF8Encoding]::new($false))
+  }
+
   # Silently refresh embedded live model catalog in SKILL.md for instant next-turn picker
   try { Sync-CodexOptionsIntoSkill } catch {}
 
   if ($exitCode -ne 0) {
+    $runFailed = $true
     [Console]::Error.WriteLine("")
     [Console]::Error.WriteLine("ERROR: codex exited with code $exitCode.")
     if ((-not $verbose) -and (Test-Path -LiteralPath $logFile)) {
@@ -273,6 +337,10 @@ try {
     exit $exitCode
   }
 
+  if (-not [string]::IsNullOrWhiteSpace($capturedSid)) {
+    Write-Output "==> [Codex Engineer] Session ID: $capturedSid (saved to $sessionFile)"
+  }
+
   if (-not $verbose) {
     Write-Output "==> [Codex Engineer] Completed cleanly. Full process log: $logFile"
     if ((Test-Path -LiteralPath $OutputFile) -and ((Get-Item -LiteralPath $OutputFile).Length -gt 0)) {
@@ -282,8 +350,8 @@ try {
     }
   }
 } finally {
-  if ($cleanupTmpOut -and (Test-Path -LiteralPath $OutputFile)) {
-    Remove-Item -LiteralPath $OutputFile -Force -ErrorAction SilentlyContinue
+  if ($tmpRunDir -and (-not $runFailed) -and (Test-Path -LiteralPath $tmpRunDir)) {
+    Remove-Item -LiteralPath $tmpRunDir -Recurse -Force -ErrorAction SilentlyContinue
   }
   Pop-Location
 }

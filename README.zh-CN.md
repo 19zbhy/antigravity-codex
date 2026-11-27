@@ -13,6 +13,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/19zbhy/antigravity-codex/actions/workflows/ci.yml">
+    <img src="https://github.com/19zbhy/antigravity-codex/actions/workflows/ci.yml/badge.svg" alt="CI" />
+  </a>
+</p>
+
+<p align="center">
   <img src="./assets/workflow-preview.png" alt="Antigravity x Codex 工作流示意图" width="100%" />
 </p>
 
@@ -28,10 +34,10 @@
   - **Antigravity（需求分析 + 终审把关）**：负责发散思维探路、输出抓大放小的“人话”任务书、划定边缘防坑清单与红线边界、独立复核 `git diff` 并用人话汇报。
   - **Codex CLI（工程实现 + 现场自测）**：拿到清晰目标后自主决定最地道的工程实现，并在工作区现场跑通构建、Lint 与单测闭环，一次交出能跑通的代码。
 - **零第三方桥接 · 100% 官方正门**：不装 MCP Server、不用逆向反代、不依赖 tmux，直接通过官方 `codex exec` / `codex exec resume --last` 命令行协作，合规稳定。
-- **随 Codex 自动更新的可视化点选卡片（模型 / 推理强度 / 服务档位）**：每次触发 `/codex` 时自动调用 `list-options` 实时读取本机 `~/.codex/models_cache.json` 与 `~/.codex/config.toml`，动态弹出当前账号最新可用的全部模型、支持的推理强度（如 `low`～`ultra`）与服务档位（`priority` 快速 / `default` 标准 / `flex` 省流），无需硬编码，随 Codex 升级自动同步。
-- **白名单轻量隔离（`--ignore-user-config`）+ 静默日志摘要**：默认跳过桌面 `~/.codex/config.toml` 里的重型插件与 MCP（仅白名单透传模型、推理强度、服务档位与系统代理），大幅削减 Codex Token 消耗；同时将冗长过程日志落盘 `.log`、终端仅回传最终摘要（随时可用 `--no-isolate` 或 `CODEX_VERBOSE=1` 关闭）。
-- **只读深度审查（`review`）+ 分支隔离（`--worktree`）**：除 `workspace-write` 写代码外，内置严格的 `read-only` 只读审计模式、分场景任务模板（`implementation` / `bugfix` / `review`）以及可选的 `--worktree` 独立分支隔离。
-- **全平台支持**：原生提供 **macOS / Linux (`run-codex.sh`)** 与 **Windows (`run-codex.ps1`)** 双端支持。
+- **基于本机缓存的秒弹点选卡片（模型 / 推理强度 / 服务档位）**：安装与每次执行后自动解析本机 `~/.codex/models_cache.json` 与 `~/.codex/config.toml` 顶层默认项并同步进 `SKILL.md`，触发 `/codex` 时零额外命令轮次直接弹出当前本机缓存中的模型与推理强度列表（随本地 Codex 缓存更新自动刷新）。
+- **白名单轻量隔离（`--ignore-user-config`）+ 静默日志摘要**：默认跳过桌面 `~/.codex/config.toml` 里的插件与 MCP（仅白名单透传顶层 `model`、`model_reasoning_effort`、`service_tier` 与 `[features].respect_system_proxy`）以降低 Codex 启动上下文开销；同时将过程日志落盘 `.log`、终端仅回传最终摘要（支持 `--no-isolate` / `CODEX_VERBOSE=1`）。
+- **精确会话绑定 + 只读审查（`review`）+ 失败即中止的 `--worktree`**：`execute` 自动记录本次任务 `session_id` 到同目录 `.session_id` 文件，`resume` 优先精确续接该会话（仅无记录时回退 `--last`）；支持严格 `read-only` 只读审查；若请求 `--worktree` 但环境不支持则直接报错中止，绝不静默降级写主工作区。
+- **跨平台回归测试与 CI**：内置 Mock Codex CLI 回归测试套件（`tests/test-run-codex.sh` 与 `tests/test-run-codex.ps1`），在 GitHub Actions 上持续验证 **Ubuntu / macOS / Windows** 三平台行为。
 
 ---
 
