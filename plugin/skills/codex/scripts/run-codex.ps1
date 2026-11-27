@@ -228,76 +228,86 @@ function Sync-CodexOptionsIntoSkill {
 
 if ($Mode -eq "doctor") {
   $failures = 0
-  Write-Output "=== antigravity-codex doctor ==="
-  $codexBin = Get-Command codex -ErrorAction SilentlyContinue
-  if ($codexBin) {
-    $ver = (& codex --version 2>&1 | Select-Object -First 1) -join ""
-    Write-Output "  [OK]   codex CLI: $ver ($($codexBin.Source))"
-    $loginOut = (& codex login status 2>&1 | Select-Object -First 1) -join ""
-    if ($LASTEXITCODE -eq 0) {
-      Write-Output "  [OK]   codex auth: $loginOut"
+  $prevEap = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    Write-Output "=== antigravity-codex doctor ==="
+    $codexBin = Get-Command codex -ErrorAction SilentlyContinue
+    if ($codexBin) {
+      $verLines = @(& codex --version 2>&1)
+      $ver = if ($verLines.Count -gt 0) { "$($verLines[0])" } else { "found" }
+      Write-Output "  [OK]   codex CLI: $ver ($($codexBin.Source))"
+      $loginLines = @(& codex login status 2>&1)
+      $loginExit = $LASTEXITCODE
+      $loginOut = if ($loginLines.Count -gt 0) { "$($loginLines[0])" } else { "authenticated" }
+      if ($loginExit -eq 0) {
+        Write-Output "  [OK]   codex auth: $loginOut"
+      } else {
+        Write-Output "  [FAIL] codex auth: not signed in (run 'codex login' in terminal)"
+        $failures++
+      }
+      $docHelp = (@(& codex exec --help 2>&1) | ForEach-Object { "$_" }) -join "`n"
+      $caps = @()
+      if ($docHelp -match "--json") { $caps += "--json" }
+      if ($docHelp -match "--output-schema") { $caps += "--output-schema" }
+      if ($docHelp -match "--worktree") { $caps += "--worktree" }
+      if ($docHelp -match "--ignore-user-config") { $caps += "--ignore-user-config" }
+      if ($docHelp -match "--approve-for-me") { $caps += "--approve-for-me" }
+      Write-Output "  [OK]   codex exec flags: $(if ($caps.Count -gt 0) { $caps -join ' ' } else { 'basic' })"
     } else {
-      Write-Output "  [FAIL] codex auth: not signed in (run 'codex login' in terminal)"
+      Write-Output "  [FAIL] codex CLI: not found in PATH"
       $failures++
     }
-    $docHelp = (& codex exec --help 2>&1) -join "`n"
-    $caps = @()
-    if ($docHelp -match "--json") { $caps += "--json" }
-    if ($docHelp -match "--output-schema") { $caps += "--output-schema" }
-    if ($docHelp -match "--worktree") { $caps += "--worktree" }
-    if ($docHelp -match "--ignore-user-config") { $caps += "--ignore-user-config" }
-    if ($docHelp -match "--approve-for-me") { $caps += "--approve-for-me" }
-    Write-Output "  [OK]   codex exec flags: $(if ($caps.Count -gt 0) { $caps -join ' ' } else { 'basic' })"
-  } else {
-    Write-Output "  [FAIL] codex CLI: not found in PATH"
-    $failures++
-  }
 
-  if (Test-Path -LiteralPath $configFile) {
-    $dm = Get-TomlTopLevelString "model" $configFile
-    $de = Get-TomlTopLevelString "model_reasoning_effort" $configFile
-    $dt = Get-TomlTopLevelString "service_tier" $configFile
-    $dp = Get-TomlTopLevelString "model_provider" $configFile
-    Write-Output "  [OK]   config.toml: model=$(if ($dm) {$dm} else {'default'}) effort=$(if ($de) {$de} else {'default'}) tier=$(if ($dt) {$dt} else {'default'}) provider=$(if ($dp) {$dp} else {'openai'})"
-  } else {
-    Write-Output "  [WARN] config.toml: not found at $configFile"
-  }
-
-  if (Test-Path -LiteralPath $cacheFile) {
-    Write-Output "  [OK]   models_cache.json: found ($cacheFile)"
-  } else {
-    Write-Output "  [WARN] models_cache.json: not found (run codex once to populate)"
-  }
-
-  $stateDb = Join-Path $codexDir "state_5.sqlite"
-  if (Test-Path -LiteralPath $stateDb) {
-    $projCount = (Get-CodexProjectLines).Count
-    Write-Output "  [OK]   state_5.sqlite: found ($projCount Codex projects)"
-  } else {
-    Write-Output "  [WARN] state_5.sqlite: not found (Codex Desktop project/session lookup unavailable)"
-  }
-
-  $gitBin = Get-Command git -ErrorAction SilentlyContinue
-  if ($gitBin) {
-    $gitVer = (& git --version 2>&1 | Select-Object -First 1) -join ""
-    Write-Output "  [OK]   git: $gitVer"
-  } else {
-    Write-Output "  [WARN] git: not found (-Worktree and git diff summaries unavailable)"
-  }
-
-  $scriptDir = Split-Path -Parent $PSCommandPath
-  $skillPath = Join-Path (Split-Path -Parent $scriptDir) "SKILL.md"
-  if (Test-Path -LiteralPath $skillPath) {
-    $skillText = Get-Content -LiteralPath $skillPath -Raw -Encoding UTF8
-    if ($skillText -match "<USER_HOME>") {
-      Write-Output "  [WARN] SKILL.md: still contains <USER_HOME> placeholder (run install.ps1)"
-    } elseif ($skillText -match "(?m)^- \(not synced yet\)\r?$") {
-      Write-Output "  [WARN] SKILL.md: live options not synced yet (run sync-options)"
+    if (Test-Path -LiteralPath $configFile) {
+      $dm = Get-TomlTopLevelString "model" $configFile
+      $de = Get-TomlTopLevelString "model_reasoning_effort" $configFile
+      $dt = Get-TomlTopLevelString "service_tier" $configFile
+      $dp = Get-TomlTopLevelString "model_provider" $configFile
+      Write-Output "  [OK]   config.toml: model=$(if ($dm) {$dm} else {'default'}) effort=$(if ($de) {$de} else {'default'}) tier=$(if ($dt) {$dt} else {'default'}) provider=$(if ($dp) {$dp} else {'openai'})"
     } else {
-      Write-Output "  [OK]   SKILL.md: installed and live options synced ($skillPath)"
+      Write-Output "  [WARN] config.toml: not found at $configFile"
     }
-  } else {
-    Write-Output "  [WARN] SKILL.md: not found at $skillPath"
+
+    if (Test-Path -LiteralPath $cacheFile) {
+      Write-Output "  [OK]   models_cache.json: found ($cacheFile)"
+    } else {
+      Write-Output "  [WARN] models_cache.json: not found (run codex once to populate)"
+    }
+
+    $stateDb = Join-Path $codexDir "state_5.sqlite"
+    if (Test-Path -LiteralPath $stateDb) {
+      $projCount = (Get-CodexProjectLines).Count
+      Write-Output "  [OK]   state_5.sqlite: found ($projCount Codex projects)"
+    } else {
+      Write-Output "  [WARN] state_5.sqlite: not found (Codex Desktop project/session lookup unavailable)"
+    }
+
+    $gitBin = Get-Command git -ErrorAction SilentlyContinue
+    if ($gitBin) {
+      $gitLines = @(& git --version 2>&1)
+      $gitVer = if ($gitLines.Count -gt 0) { "$($gitLines[0])" } else { "found" }
+      Write-Output "  [OK]   git: $gitVer"
+    } else {
+      Write-Output "  [WARN] git: not found (-Worktree and git diff summaries unavailable)"
+    }
+
+    $scriptDir = Split-Path -Parent $PSCommandPath
+    $skillPath = Join-Path (Split-Path -Parent $scriptDir) "SKILL.md"
+    if (Test-Path -LiteralPath $skillPath) {
+      $skillText = Get-Content -LiteralPath $skillPath -Raw -Encoding UTF8
+      if ($skillText -match "<USER_HOME>") {
+        Write-Output "  [WARN] SKILL.md: still contains <USER_HOME> placeholder (run install.ps1)"
+      } elseif ($skillText -match "(?m)^- \(not synced yet\)\r?$") {
+        Write-Output "  [WARN] SKILL.md: live options not synced yet (run sync-options)"
+      } else {
+        Write-Output "  [OK]   SKILL.md: installed and live options synced ($skillPath)"
+      }
+    } else {
+      Write-Output "  [WARN] SKILL.md: not found at $skillPath"
+    }
+  } finally {
+    $ErrorActionPreference = $prevEap
   }
 
   if ($failures -gt 0) {
@@ -327,40 +337,47 @@ if ($Mode -eq "cleanup-worktree") {
     [Console]::Error.WriteLine("ERROR: Directory is not a linked Git worktree: $wtReal")
     exit 2
   }
-  $commonGitDir = (& git -C $wtReal rev-parse --git-common-dir 2>$null) -join ""
-  if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($commonGitDir)) {
-    [Console]::Error.WriteLine("ERROR: Unable to resolve parent Git repository for worktree: $wtReal")
-    exit 2
-  }
-  $commonGitFull = if ([System.IO.Path]::IsPathRooted($commonGitDir)) { $commonGitDir } else { Join-Path $wtReal $commonGitDir }
-  $mainRepo = Split-Path -Parent ((Resolve-Path -LiteralPath $commonGitFull).Path)
-  $wtBranch = (& git -C $wtReal symbolic-ref --short HEAD 2>$null) -join ""
-  if ($LASTEXITCODE -ne 0) { $wtBranch = "" }
-
-  if (-not $Force) {
-    $dirty = (& git -C $wtReal status --porcelain 2>$null) -join ""
-    if (-not [string]::IsNullOrWhiteSpace($dirty)) {
-      [Console]::Error.WriteLine("ERROR: Worktree has uncommitted changes. Commit/stash them first or pass -Force: $wtReal")
+  $prevEap = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    $commonGitDir = (@(& git -C $wtReal rev-parse --git-common-dir 2>$null)) -join ""
+    $commonGitRc = $LASTEXITCODE
+    if ($commonGitRc -ne 0 -or [string]::IsNullOrWhiteSpace($commonGitDir)) {
+      [Console]::Error.WriteLine("ERROR: Unable to resolve parent Git repository for worktree: $wtReal")
       exit 2
     }
-  }
+    $commonGitFull = if ([System.IO.Path]::IsPathRooted($commonGitDir)) { $commonGitDir } else { Join-Path $wtReal $commonGitDir }
+    $mainRepo = Split-Path -Parent ((Resolve-Path -LiteralPath $commonGitFull).Path)
+    $wtBranch = (@(& git -C $wtReal symbolic-ref --short HEAD 2>$null)) -join ""
+    if ($LASTEXITCODE -ne 0) { $wtBranch = "" }
 
-  if ($Force) {
-    & git -C $mainRepo worktree remove --force $wtReal
-  } else {
-    & git -C $mainRepo worktree remove $wtReal
-  }
-  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-  Write-Output "==> [Codex Engineer] Removed worktree: $wtReal"
+    if (-not $Force) {
+      $dirty = (@(& git -C $wtReal status --porcelain 2>$null)) -join ""
+      if (-not [string]::IsNullOrWhiteSpace($dirty)) {
+        [Console]::Error.WriteLine("ERROR: Worktree has uncommitted changes. Commit/stash them first or pass -Force: $wtReal")
+        exit 2
+      }
+    }
 
-  if ($DeleteBranch -and -not [string]::IsNullOrWhiteSpace($wtBranch)) {
     if ($Force) {
-      & git -C $mainRepo branch -D $wtBranch
+      & git -C $mainRepo worktree remove --force $wtReal
     } else {
-      & git -C $mainRepo branch -d $wtBranch
+      & git -C $mainRepo worktree remove $wtReal
     }
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    Write-Output "==> [Codex Engineer] Deleted branch: $wtBranch"
+    Write-Output "==> [Codex Engineer] Removed worktree: $wtReal"
+
+    if ($DeleteBranch -and -not [string]::IsNullOrWhiteSpace($wtBranch)) {
+      if ($Force) {
+        & git -C $mainRepo branch -D $wtBranch
+      } else {
+        & git -C $mainRepo branch -d $wtBranch
+      }
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      Write-Output "==> [Codex Engineer] Deleted branch: $wtBranch"
+    }
+  } finally {
+    $ErrorActionPreference = $prevEap
   }
   exit 0
 }

@@ -74,7 +74,7 @@ if "%~1"=="exec" if "%~2"=="--help" (
   echo   --approve-for-me
   echo   --ignore-user-config
   if not "%MOCK_NO_JSON%"=="1" echo   --json
-  if not "%MOCK_NO_SCHEMA%"=="1" echo   --output-schema ^<FILE^>
+  if not "%MOCK_NO_SCHEMA%"=="1" echo   --output-schema
   if not "%MOCK_NO_WORKTREE%"=="1" echo   --worktree
   exit /b 0
 )
