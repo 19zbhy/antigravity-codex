@@ -283,7 +283,69 @@ PY
   fi
 }
 
+emit_project_sessions() {
+  local state_db="${CODEX_DIR}/state_5.sqlite"
+  if [[ ! -f "$state_db" ]]; then
+    return 0
+  fi
+  local out=""
+  local py_bin
+  for py_bin in "$(command -v python3 2>/dev/null || true)" "/usr/bin/python3"; do
+    if [[ -n "$py_bin" ]] && [[ -x "$py_bin" ]]; then
+      out="$("$py_bin" - "$state_db" <<'PY' 2>/dev/null || true
+import datetime, os, sqlite3, sys
+conn = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+cur = conn.cursor()
+cols = {r[1] for r in cur.execute("PRAGMA table_info(threads)").fetchall()}
+title_expr = "COALESCE(NULLIF(name, ''), NULLIF(title, ''), preview, '')" if "name" in cols else "COALESCE(NULLIF(title, ''), preview, '')"
+ts_expr = "COALESCE(NULLIF(recency_at, 0), updated_at)" if "recency_at" in cols else "updated_at"
+projs = cur.execute("""
+SELECT p.name, pr.path
+FROM projects p
+JOIN project_roots pr ON p.id = pr.project_id
+WHERE pr.position = (
+  SELECT MIN(pr2.position) FROM project_roots pr2 WHERE pr2.project_id = p.id
+)
+ORDER BY p.position ASC
+""").fetchall()
+lines = []
+for pname, ppath in projs:
+    if not pname or not ppath:
+        continue
+    norm = os.path.realpath(ppath).rstrip("/")
+    rows = cur.execute(
+        f"""
+        SELECT id, {ts_expr}, {title_expr}
+        FROM threads
+        WHERE archived = 0
+          AND COALESCE(model, '') != 'codex-auto-review'
+          AND (rtrim(cwd, '/') = ? OR rtrim(cwd, '/') = ?)
+        ORDER BY {ts_expr} DESC
+        LIMIT 6
+        """,
+        (ppath.rstrip("/"), norm),
+    ).fetchall()
+    if rows:
+        lines.append(f"  - {pname}:")
+        for sid, ts, title in rows:
+            dt = datetime.datetime.fromtimestamp(ts).strftime("%m-%d %H:%M") if isinstance(ts, (int, float)) and ts > 0 else str(ts)
+            clean_title = " ".join(str(title).split())[:60]
+            lines.append(f"    - {sid} | {dt} | {clean_title}")
+conn.close()
+if lines:
+    print("\n".join(lines))
+PY
+)"
+      if [[ -n "$out" ]]; then
+        printf '%s\n' "$out"
+        return 0
+      fi
+    fi
+  done
+}
+
 emit_options() {
+  local include_sessions="${1:-0}"
   local default_model default_effort default_tier
   default_model="$(read_toml_top_level "model" "$CONFIG_FILE")"
   default_effort="$(read_toml_top_level "model_reasoning_effort" "$CONFIG_FILE")"
@@ -346,19 +408,35 @@ console.log(`- efforts: ${efforts.join(", ")}`);
     echo "- projects:"
     printf '%s\n' "$proj_lines"
   fi
+  if [[ "$include_sessions" == "1" ]]; then
+    local sess_lines=""
+    sess_lines="$(emit_project_sessions || true)"
+    if [[ -n "$sess_lines" ]]; then
+      echo "- project_sessions:"
+      printf '%s\n' "$sess_lines"
+    fi
+  fi
 }
 
 sync_options_into_skill() {
   local target_skill="${1:-$SKILL_MD_PATH}"
+  local include_sessions="${2:-auto}"
   if [[ ! -f "$target_skill" ]]; then
     return 0
   fi
   if ! grep -q "CODEX_LIVE_OPTIONS_START" "$target_skill" || ! grep -q "CODEX_LIVE_OPTIONS_END" "$target_skill"; then
     return 0
   fi
+  if [[ "$include_sessions" == "auto" ]]; then
+    if [[ "$(basename "$target_skill")" == "SKILL.md" ]]; then
+      include_sessions="1"
+    else
+      include_sessions="0"
+    fi
+  fi
   local opts_tmp
   opts_tmp="$(mktemp "${TMPDIR:-/tmp}/codex-opts.XXXXXX")"
-  emit_options > "$opts_tmp"
+  emit_options "$include_sessions" > "$opts_tmp"
   local out_tmp
   out_tmp="$(mktemp "${TMPDIR:-/tmp}/codex-skill.XXXXXX")"
   awk -v opts_file="$opts_tmp" '

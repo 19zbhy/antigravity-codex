@@ -396,6 +396,11 @@ PY
   assert_contains "show-session includes real assistant reply" "Updated refresh interval to 5 minutes." "$SHOW_OUT"
   assert_not_contains "show-session strips developer prompt" "SECRET_SYSTEM_PROMPT" "$SHOW_OUT"
   assert_not_contains "show-session strips AGENTS.md boilerplate" "AGENTS.md instructions" "$SHOW_OUT"
+
+  # sync-options embeds project_sessions into SKILL.md but keeps rules/AGENTS.md compact
+  CODEX_HOME="$CODEX_HOME_1" "$RUNNER" sync-options
+  assert_contains "sync-options embeds project_sessions into SKILL.md" "Sidebar Custom Name" "$(cat "${TMP_ROOT}/plugin/skills/codex/SKILL.md")"
+  assert_not_contains "sync-options keeps rules/AGENTS.md free of project_sessions" "project_sessions:" "$(cat "${TMP_ROOT}/plugin/rules/AGENTS.md")"
 fi
 
 # fork fails closed without session ID, and passes fork <id> - when provided

@@ -30,13 +30,15 @@ description: >-
      - **问题 4（选择响应速度）**：
        - `(Recommended) 默认 · <default_tier 对应的中文名>`
        - `极速模式`、`标准速度`。
-2. **若用户选择了某个 Codex 项目（自动进入双端共享 + 可选接力老会话）**：
-   - 将该项目路径作为本次任务的 `<workspace_dir>`，并立刻执行两步轻量准备：
-     1. 若该项目尚未存在 `.agents/state.md`，自动运行 `run-codex.sh init-shared "<project_path>" --exclude-state` **无感开启双端共享状态**；
-     2. 运行 `run-codex.sh list-sessions "<project_path>" --limit 8` 获取该项目在 Codex 中的最近活跃对话（已自动过滤内部 `codex-auto-review` 噪音）。
-   - 紧接着调用 `ask_question` 弹出 1 个极简单选（问题标题：`选择「<项目名>」中的对话`；选项简洁无重复前缀、无冗余括号）：
-     - `(Recommended) 新建对话`
-     - 将查到的最近 Codex 对话逐条列出，直接展示 `<对话名> · <时间>`（例如 `iKuuu · 11-27 21:38`，**不要**每条都重复写“继续老会话：”）；用户选某条老会话时：
+2. **若用户选择了某个 Codex 项目（1 轮极速弹出对话选择 + 自动共享状态）**：
+   - 将该项目路径作为本次任务的 `<workspace_dir>`。
+   - **优先直接使用下方快照里的 `- project_sessions:` 预同步列表（零额外命令轮次，省去一次 `list-sessions` 往返！）**：
+     - 若下方 `- project_sessions:` 中已有该项目的最近对话，**不要先跑 `list-sessions`**，直接在本轮并行读取 `<project_path>/.agents/state.md`（若存在）并调用 `ask_question` 弹出单选卡片（标题：`选择「<项目名>」中的对话`；选项简洁无重复前缀、无冗余括号）：
+       - `(Recommended) 新建对话`
+       - 逐条列出缓存的 `<对话名> · <时间>`（例如 `iKuuu · 11-27 21:38`，**不要**每条都重复写“继续老会话：”）
+       - `刷新对话列表`（仅当用户点此项，或快照中无该项目缓存时，才运行 `run-codex.sh list-sessions "<project_path>" --limit 8` 实时查库并重新弹窗）
+     - 若读取 `.agents/state.md` 发现不存在，顺手运行一次 `run-codex.sh init-shared "<project_path>" --exclude-state` 无感开启双端共享状态。
+   - 当用户选中某条老会话时：
        1. **先让 Antigravity 真正承接上下文**：立刻运行 `run-codex.sh show-session <session_id> --turns 10` 只读提取该条 Codex 老对话最近 10 条纯净用户/助手对话（自动过滤系统提示与冗长工具日志），让 Antigravity 在 Phase 1 规划前完整了解之前聊过的内容；
        2. **Phase 3 默认使用 `resume --session <id>` 原位续聊**（切回 Codex App 可直接在该对话中看到新增回合；仅当用户明确要求“分叉 / 不要改原对话”时才使用 `fork --session <id>`）。
           - **若 `resume` 报 `already has an active writer`（`HINT_THREAD_LOCKED`）**：严禁未经告知直接关闭 Codex 桌面端！立刻调用 `ask_question` 告知用户并给出 2 个选项：

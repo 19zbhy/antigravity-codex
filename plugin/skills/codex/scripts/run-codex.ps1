@@ -172,7 +172,47 @@ except Exception:
   return @(& $pyCmd.Source -c $pyCode $stateDb 2>$null)
 }
 
-function Get-CodexOptionsLines {
+function Get-CodexProjectSessionLines {
+  $stateDb = Join-Path $codexDir "state_5.sqlite"
+  if (-not (Test-Path -LiteralPath $stateDb)) { return @() }
+  $pyCmd = Get-Command python -ErrorAction SilentlyContinue
+  if (-not $pyCmd) { $pyCmd = Get-Command python3 -ErrorAction SilentlyContinue }
+  if (-not $pyCmd) { return @() }
+  $pyCode = @'
+import datetime, os, sqlite3, sys
+try:
+    conn = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+    cur = conn.cursor()
+    cols = {r[1] for r in cur.execute("PRAGMA table_info(threads)").fetchall()}
+    title_expr = "COALESCE(NULLIF(name, ''), NULLIF(title, ''), preview, '')" if "name" in cols else "COALESCE(NULLIF(title, ''), preview, '')"
+    ts_expr = "COALESCE(NULLIF(recency_at, 0), updated_at)" if "recency_at" in cols else "updated_at"
+    projs = cur.execute("""
+    SELECT p.name, pr.path
+    FROM projects p
+    JOIN project_roots pr ON p.id = pr.project_id
+    WHERE pr.position = (SELECT MIN(pr2.position) FROM project_roots pr2 WHERE pr2.project_id = p.id)
+    ORDER BY p.position ASC
+    """).fetchall()
+    for pname, ppath in projs:
+        if not pname or not ppath: continue
+        norm = os.path.realpath(ppath).rstrip("\\/")
+        rows = cur.execute(
+            f"SELECT id, {ts_expr}, {title_expr} FROM threads WHERE archived = 0 AND COALESCE(model, '') != 'codex-auto-review' AND (rtrim(rtrim(cwd, '/'), '\\') = ? OR rtrim(rtrim(cwd, '/'), '\\') = ?) ORDER BY {ts_expr} DESC LIMIT 6",
+            (ppath.rstrip("\\/"), norm),
+        ).fetchall()
+        if rows:
+            print(f"  - {pname}:")
+            for sid, ts, title in rows:
+                dt = datetime.datetime.fromtimestamp(ts).strftime("%m-%d %H:%M") if isinstance(ts, (int, float)) and ts > 0 else str(ts)
+                print(f"    - {sid} | {dt} | {' '.join(str(title).split())[:60]}")
+    conn.close()
+except Exception:
+    pass
+'@
+  return @(& $pyCmd.Source -c $pyCode $stateDb 2>$null)
+}
+
+function Get-CodexOptionsLines([bool]$IncludeSessions = $false) {
   $defaultModel = Get-TomlTopLevelString "model" $configFile
   $defaultEffort = Get-TomlTopLevelString "model_reasoning_effort" $configFile
   $defaultTier = Get-TomlTopLevelString "service_tier" $configFile
@@ -205,6 +245,13 @@ function Get-CodexOptionsLines {
     $lines.Add("- projects:")
     foreach ($pl in $projLines) { $lines.Add($pl) }
   }
+  if ($IncludeSessions) {
+    $sessLines = Get-CodexProjectSessionLines
+    if ($sessLines.Count -gt 0) {
+      $lines.Add("- project_sessions:")
+      foreach ($sl in $sessLines) { $lines.Add($sl) }
+    }
+  }
   return $lines
 }
 
@@ -213,15 +260,16 @@ function Sync-CodexOptionsIntoSkill {
   $skillDir = Split-Path -Parent $scriptDir
   $pluginRoot = Split-Path -Parent (Split-Path -Parent $skillDir)
   $targets = @(
-    (Join-Path $skillDir "SKILL.md"),
-    (Join-Path $pluginRoot "rules\AGENTS.md")
+    @{ Path = (Join-Path $skillDir "SKILL.md"); IncludeSessions = $true },
+    @{ Path = (Join-Path $pluginRoot "rules\AGENTS.md"); IncludeSessions = $false }
   )
-  $block = (Get-CodexOptionsLines) -join "`n"
-  $replacement = "<!-- CODEX_LIVE_OPTIONS_START -->`n$block`n<!-- CODEX_LIVE_OPTIONS_END -->"
-  foreach ($targetPath in $targets) {
+  foreach ($entry in $targets) {
+    $targetPath = $entry.Path
     if (-not (Test-Path -LiteralPath $targetPath)) { continue }
     $content = Get-Content -LiteralPath $targetPath -Raw -Encoding UTF8
     if ($content -notmatch "<!-- CODEX_LIVE_OPTIONS_START -->" -or $content -notmatch "<!-- CODEX_LIVE_OPTIONS_END -->") { continue }
+    $block = (Get-CodexOptionsLines -IncludeSessions $entry.IncludeSessions) -join "`n"
+    $replacement = "<!-- CODEX_LIVE_OPTIONS_START -->`n$block`n<!-- CODEX_LIVE_OPTIONS_END -->"
     $updated = [regex]::Replace($content, "<!-- CODEX_LIVE_OPTIONS_START -->[\s\S]*?<!-- CODEX_LIVE_OPTIONS_END -->", [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $replacement })
     [System.IO.File]::WriteAllText($targetPath, $updated, [System.Text.UTF8Encoding]::new($false))
   }
