@@ -10,28 +10,21 @@ description: >-
 
 ---
 
-## Phase 0：选择 Codex 运行档位（模型 / 推理强度 / 服务档位）
+## Phase 0：极速弹出 Codex 运行档位选择（模型 / 推理强度 / 服务档位）
 
 1. **检查用户是否已在 `/codex` 消息中显式指定配置**（例如“用 high 推理、快速模式”或 `--model ... --effort ... --tier ...`）：
    - 若用户已明确指定，直接采用并跳过弹窗。
-2. **否则，先只读查看 `<USER_HOME>/.codex/config.toml` 前几行**（获取用户当前的默认 `model`、`model_reasoning_effort`、`service_tier`，便于在选项中展示当前默认值），然后调用 **`ask_question`** 一次性弹出 3 个单选问题让用户点选（每题第一项均为 `(Recommended) 沿用本机默认配置`）：
-   - **问题 1（Codex 模型）**：
-     - `(Recommended) 沿用本机默认配置（当前：<default_model>）`
-     - `gpt-6.1-sol`
-     - `gpt-5.4`
-     - （用户也可通过卡片自带的 Other 直接手填任意模型名）
-   - **问题 2（推理强度 `model_reasoning_effort`）**：
-     - `(Recommended) 沿用本机默认配置（当前：<default_effort>）`
-     - `low（轻量极速）`
-     - `medium（均衡推荐）`
-     - `high（深度推理，适合复杂重构/排障）`
-     - `xhigh（最高强度，耗时较长）`
-   - **问题 3（服务档位 `service_tier`）**：
-     - `(Recommended) 沿用本机默认配置（当前：<default_tier>）`
-     - `priority（快速模式 / Fast，响应最快）`
-     - `default（标准模式，速度与额度均衡）`
-     - `flex（弹性省流模式，延迟较高）`
-3. 记住用户的选择（选“沿用本机默认配置”的项在 Phase 3 中不传覆盖参数，直接沿用 `~/.codex/config.toml`）。
+2. **零额外工具轮次、秒弹选择卡片**：
+   - 直接读取下方由安装脚本与 `run-codex.sh` 自动同步好的本机实时选项快照（**不要在弹卡片前额外跑终端或读 `config.toml`**，避免拖慢弹窗速度；仅当下方快照显示 `(not synced yet)` 时，才先跑一次 `run-codex.sh sync-options`）。
+   - **立即调用 `ask_question`** 一次性弹出 3 个单选问题（每题第一项均为 `(Recommended) 沿用本机默认配置`）：
+     - **问题 1（Codex 模型）**：`(Recommended) 沿用本机默认配置（当前：<default_model>）` + 下方快照中列出的全部可用模型（用户也可在卡片自带的 Other 手填任意模型名）。
+     - **问题 2（推理强度 `model_reasoning_effort`）**：`(Recommended) 沿用本机默认配置（当前：<default_effort>）` + 下方快照中的全部 `efforts`。
+     - **问题 3（服务档位 `service_tier`）**：`(Recommended) 沿用本机默认配置（当前：<default_tier>）` + `priority（快速模式 / Fast）`、`default（标准模式）`、`flex（弹性省流模式）`。
+3. 记住用户的选择（选“沿用本机默认配置”的项在 Phase 3 中不传覆盖参数，直接沿用 `~/.codex/config.toml`）。每次 `run-codex.sh` 执行后会自动静默刷新下方快照，随 Codex 更新保持同步。
+
+<!-- CODEX_LIVE_OPTIONS_START -->
+- (not synced yet)
+<!-- CODEX_LIVE_OPTIONS_END -->
 
 ---
 

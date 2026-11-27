@@ -4,29 +4,148 @@ set -euo pipefail
 # Ensure Homebrew, npm global bin, and ChatGPT desktop codex-cli paths are available in GUI shells
 export PATH="/opt/homebrew/bin:/usr/local/bin:${HOME}/.npm-global/bin:/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path:/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS:${PATH}"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILL_MD_PATH="${SCRIPT_DIR}/../SKILL.md"
+
 usage() {
   cat <<'EOF' >&2
 Usage:
-  run-codex.sh execute <workspace_dir> <plan_file> [output_last_message_file] [--model <name>] [--effort <low|medium|high|xhigh>] [--tier <priority|default|flex|fast>]
-  run-codex.sh resume  <workspace_dir> <fix_file>  [output_last_message_file] [--model <name>] [--effort <low|medium|high|xhigh>] [--tier <priority|default|flex|fast>]
+  run-codex.sh list-options
+  run-codex.sh sync-options [skill_md_path]
+  run-codex.sh execute <workspace_dir> <plan_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>]
+  run-codex.sh resume  <workspace_dir> <fix_file>  [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>]
 
 Environment variables (overridden by CLI flags):
   CODEX_MODEL       Override model name (defaults to ~/.codex/config.toml)
-  CODEX_EFFORT      Override model_reasoning_effort (low | medium | high | xhigh)
+  CODEX_EFFORT      Override model_reasoning_effort (e.g. low | medium | high | xhigh | max | ultra)
   CODEX_TIER        Override service_tier (priority | default | flex | fast)
   CODEX_VERBOSE=1   Stream full codex process output to stdout instead of quiet log-summary mode.
 EOF
   exit 2
 }
 
-if [[ $# -lt 3 ]]; then
+emit_options() {
+  local codex_dir="${CODEX_HOME:-${HOME}/.codex}"
+  local config_file="${codex_dir}/config.toml"
+  local cache_file="${codex_dir}/models_cache.json"
+
+  local default_model=""
+  local default_effort=""
+  local default_tier=""
+  if [[ -f "$config_file" ]]; then
+    default_model="$(grep -E '^[[:space:]]*model[[:space:]]*=' "$config_file" | head -n 1 | sed -E 's/^[^=]*=[[:space:]]*"([^"]*)".*/\1/' || true)"
+    default_effort="$(grep -E '^[[:space:]]*model_reasoning_effort[[:space:]]*=' "$config_file" | head -n 1 | sed -E 's/^[^=]*=[[:space:]]*"([^"]*)".*/\1/' || true)"
+    default_tier="$(grep -E '^[[:space:]]*service_tier[[:space:]]*=' "$config_file" | head -n 1 | sed -E 's/^[^=]*=[[:space:]]*"([^"]*)".*/\1/' || true)"
+  fi
+
+  echo "- default_model: ${default_model:-default}"
+  echo "- default_effort: ${default_effort:-default}"
+  echo "- default_tier: ${default_tier:-default}"
+
+  if [[ -f "$cache_file" ]]; then
+    if command -v jq >/dev/null 2>&1; then
+      echo "- models:"
+      jq -r '.models[]? | select(.visibility == "list") | "  - \(.slug) (\(.display_name // .slug))"' "$cache_file"
+      echo "- efforts: $(jq -r '[.models[]? | select(.visibility == "list") | .supported_reasoning_levels[]?.effort] | unique | join(", ")' "$cache_file")"
+    elif command -v python3 >/dev/null 2>&1; then
+      python3 - "$cache_file" <<'PY'
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    data = json.load(f)
+models = [m for m in data.get("models", []) if m.get("visibility") == "list"]
+print("- models:")
+efforts = []
+for m in models:
+    slug = m.get("slug", "")
+    name = m.get("display_name") or slug
+    for x in m.get("supported_reasoning_levels", []):
+        e = x.get("effort")
+        if e and e not in efforts:
+            efforts.append(e)
+    print(f"  - {slug} ({name})")
+print(f"- efforts: {', '.join(efforts)}")
+PY
+    elif command -v node >/dev/null 2>&1; then
+      node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const models = (data.models || []).filter(m => m.visibility === "list");
+const efforts = [];
+console.log("- models:");
+for (const m of models) {
+  for (const x of (m.supported_reasoning_levels || [])) {
+    if (x.effort && !efforts.includes(x.effort)) efforts.push(x.effort);
+  }
+  console.log(`  - ${m.slug} (${m.display_name || m.slug})`);
+}
+console.log(`- efforts: ${efforts.join(", ")}`);
+' "$cache_file"
+    else
+      echo "- models: (install jq, python3, or node to parse models_cache.json)"
+      echo "- efforts: low, medium, high, xhigh"
+    fi
+  else
+    echo "- models: (run codex once to populate ~/.codex/models_cache.json)"
+    echo "- efforts: low, medium, high, xhigh"
+  fi
+  echo "- service_tiers: priority (快速/Fast), default (标准), flex (弹性省流)"
+}
+
+sync_options_into_skill() {
+  local target_skill="${1:-$SKILL_MD_PATH}"
+  if [[ ! -f "$target_skill" ]]; then
+    return 0
+  fi
+  if ! grep -q "CODEX_LIVE_OPTIONS_START" "$target_skill" || ! grep -q "CODEX_LIVE_OPTIONS_END" "$target_skill"; then
+    return 0
+  fi
+  local opts_tmp
+  opts_tmp="$(mktemp "${TMPDIR:-/tmp}/codex-opts.XXXXXX")"
+  emit_options > "$opts_tmp"
+  local out_tmp="${target_skill}.sync.tmp"
+  awk -v opts_file="$opts_tmp" '
+    /<!-- CODEX_LIVE_OPTIONS_START -->/ {
+      print
+      while ((getline line < opts_file) > 0) print line
+      close(opts_file)
+      in_block = 1
+      next
+    }
+    /<!-- CODEX_LIVE_OPTIONS_END -->/ {
+      in_block = 0
+      print
+      next
+    }
+    !in_block { print }
+  ' "$target_skill" > "$out_tmp"
+  mv "$out_tmp" "$target_skill"
+  rm -f "$opts_tmp"
+}
+
+if [[ $# -lt 1 ]]; then
   usage
 fi
 
 MODE="$1"
-WORKSPACE_DIR="$2"
-INPUT_FILE="$3"
-shift 3
+shift
+
+if [[ "$MODE" == "list-options" ]]; then
+  emit_options
+  exit 0
+fi
+
+if [[ "$MODE" == "sync-options" ]]; then
+  sync_options_into_skill "${1:-$SKILL_MD_PATH}"
+  exit 0
+fi
+
+if [[ $# -lt 2 ]]; then
+  usage
+fi
+
+WORKSPACE_DIR="$1"
+INPUT_FILE="$2"
+shift 2
 
 OUTPUT_FILE=""
 MODEL="${CODEX_MODEL:-}"
@@ -145,6 +264,9 @@ run_codex_cmd() {
     "$@" >"$LOG_FILE" 2>&1 || exit_code=$?
   fi
 
+  # Silently refresh embedded live model catalog in SKILL.md for instant next-turn picker
+  sync_options_into_skill "$SKILL_MD_PATH" 2>/dev/null || true
+
   if [[ "$exit_code" -ne 0 ]]; then
     echo "" >&2
     echo "ERROR: codex exited with code $exit_code." >&2
@@ -203,7 +325,7 @@ case "$MODE" in
     ;;
 
   *)
-    echo "ERROR: Unknown subcommand '$MODE' (expected 'execute' or 'resume')." >&2
+    echo "ERROR: Unknown subcommand '$MODE' (expected 'list-options', 'sync-options', 'execute', or 'resume')." >&2
     usage
     ;;
 esac

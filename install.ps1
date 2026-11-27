@@ -59,6 +59,11 @@ $skillContent = $skillContent.Replace("``--model`` / ``--effort`` / ``--tier``",
 
 [System.IO.File]::WriteAllText($skillFile, $skillContent, [System.Text.UTF8Encoding]::new($false))
 
+# Sync live Codex model catalog into SKILL.md for instant picker popups
+try {
+  & $psExe -NoProfile -ExecutionPolicy Bypass -File $runnerPath sync-options | Out-Null
+} catch {}
+
 Write-Output "==> Plugin files installed successfully!"
 Write-Output ""
 

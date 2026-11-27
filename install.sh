@@ -35,10 +35,11 @@ TMP_SKILL="${SKILL_FILE}.tmp"
 sed "s|<USER_HOME>|${ESCAPED_HOME}|g" "$SKILL_FILE" > "$TMP_SKILL"
 mv "$TMP_SKILL" "$SKILL_FILE"
 
-# Make runner script executable and verify syntax
+# Make runner script executable, verify syntax, and sync live Codex model catalog into SKILL.md
 RUNNER_SCRIPT="${DEST_PLUGIN_DIR}/skills/codex/scripts/run-codex.sh"
 chmod +x "$RUNNER_SCRIPT"
 bash -n "$RUNNER_SCRIPT"
+"$RUNNER_SCRIPT" sync-options "$SKILL_FILE" || true
 
 echo "==> Plugin files installed and validated successfully!"
 echo ""

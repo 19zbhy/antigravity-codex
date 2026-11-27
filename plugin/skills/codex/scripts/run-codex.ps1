@@ -3,27 +3,26 @@
 .SYNOPSIS
   Windows PowerShell runner for the Google Antigravity x OpenAI Codex workflow.
 .DESCRIPTION
-  Runs codex exec / resume in quiet log-summary mode by default (writing verbose process
-  logs to a sibling .log file and printing only the final summary to stdout to save
-  Antigravity context tokens). Supports optional -Model, -Effort, and -Tier overrides
-  (or env vars CODEX_MODEL, CODEX_EFFORT, CODEX_TIER). Set $env:CODEX_VERBOSE = "1"
-  for live streaming output.
+  Supports 'list-options' (auto-discovers live models & reasoning efforts from ~/.codex/models_cache.json),
+  'execute', and 'resume'. Runs in quiet log-summary mode by default (writing verbose process logs to
+  a sibling .log file and printing only the final summary to stdout to save Antigravity context tokens).
 .EXAMPLE
-  pwsh -NoProfile -File run-codex.ps1 execute C:\path\to\workspace C:\path\to\implementation_plan.md C:\path\to\codex_last_message.md -Model gpt-6.1-sol -Effort high -Tier priority
+  pwsh -NoProfile -File run-codex.ps1 list-options
+  pwsh -NoProfile -File run-codex.ps1 execute C:\path\to\workspace C:\path\to\implementation_plan.md C:\path\to\codex_last_message.md -Model gpt-6.2-sol -Effort high -Tier priority
   pwsh -NoProfile -File run-codex.ps1 resume  C:\path\to\workspace C:\path\to\codex_fix_instructions.md C:\path\to\codex_last_message.md
 #>
 
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true, Position = 0)]
-  [ValidateSet("execute", "resume")]
+  [ValidateSet("list-options", "sync-options", "execute", "resume")]
   [string]$Mode,
 
-  [Parameter(Mandatory = $true, Position = 1)]
-  [string]$WorkspaceDir,
+  [Parameter(Mandatory = $false, Position = 1)]
+  [string]$WorkspaceDir = "",
 
-  [Parameter(Mandatory = $true, Position = 2)]
-  [string]$InputFile,
+  [Parameter(Mandatory = $false, Position = 2)]
+  [string]$InputFile = "",
 
   [Parameter(Mandatory = $false, Position = 3)]
   [string]$OutputFile = "",
@@ -32,7 +31,6 @@ param(
   [string]$Model = "",
 
   [Parameter(Mandatory = $false)]
-  [ValidateSet("", "low", "medium", "high", "xhigh")]
   [string]$Effort = "",
 
   [Parameter(Mandatory = $false)]
@@ -42,6 +40,72 @@ param(
 
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+
+function Get-CodexOptionsLines {
+  $codexDir = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME ".codex" }
+  $configFile = Join-Path $codexDir "config.toml"
+  $cacheFile = Join-Path $codexDir "models_cache.json"
+
+  $defaultModel = "default"
+  $defaultEffort = "default"
+  $defaultTier = "default"
+  if (Test-Path -LiteralPath $configFile) {
+    $cfgLines = Get-Content -LiteralPath $configFile -Encoding UTF8
+    foreach ($line in $cfgLines) {
+      if ($defaultModel -eq "default" -and $line -match '^\s*model\s*=\s*"([^"]+)"') { $defaultModel = $Matches[1] }
+      if ($defaultEffort -eq "default" -and $line -match '^\s*model_reasoning_effort\s*=\s*"([^"]+)"') { $defaultEffort = $Matches[1] }
+      if ($defaultTier -eq "default" -and $line -match '^\s*service_tier\s*=\s*"([^"]+)"') { $defaultTier = $Matches[1] }
+    }
+  }
+
+  $lines = [System.Collections.Generic.List[string]]::new()
+  $lines.Add("- default_model: $defaultModel")
+  $lines.Add("- default_effort: $defaultEffort")
+  $lines.Add("- default_tier: $defaultTier")
+
+  $allEfforts = [System.Collections.Generic.List[string]]::new()
+  if (Test-Path -LiteralPath $cacheFile) {
+    $cacheData = Get-Content -LiteralPath $cacheFile -Raw -Encoding UTF8 | ConvertFrom-Json
+    $lines.Add("- models:")
+    foreach ($m in ($cacheData.models | Where-Object { $_.visibility -eq "list" })) {
+      $lvls = @($m.supported_reasoning_levels | ForEach-Object { $_.effort } | Where-Object { $_ })
+      foreach ($e in $lvls) {
+        if (-not $allEfforts.Contains($e)) { $allEfforts.Add($e) }
+      }
+      $disp = if ($m.display_name) { $m.display_name } else { $m.slug }
+      $lines.Add("  - $($m.slug) ($disp)")
+    }
+    $lines.Add("- efforts: $($allEfforts -join ', ')")
+  } else {
+    $lines.Add("- models: (run codex once to populate ~/.codex/models_cache.json)")
+    $lines.Add("- efforts: low, medium, high, xhigh")
+  }
+  $lines.Add("- service_tiers: priority (快速/Fast), default (标准), flex (弹性省流)")
+  return $lines
+}
+
+function Sync-CodexOptionsIntoSkill {
+  $scriptDir = Split-Path -Parent $MyInvocation.ScriptName
+  if (-not $scriptDir) { $scriptDir = Split-Path -Parent $PSCommandPath }
+  $skillPath = Join-Path (Split-Path -Parent $scriptDir) "SKILL.md"
+  if (-not (Test-Path -LiteralPath $skillPath)) { return }
+  $content = Get-Content -LiteralPath $skillPath -Raw -Encoding UTF8
+  if ($content -notmatch "<!-- CODEX_LIVE_OPTIONS_START -->" -or $content -notmatch "<!-- CODEX_LIVE_OPTIONS_END -->") { return }
+  $block = (Get-CodexOptionsLines) -join "`n"
+  $replacement = "<!-- CODEX_LIVE_OPTIONS_START -->`n$block`n<!-- CODEX_LIVE_OPTIONS_END -->"
+  $updated = [regex]::Replace($content, "<!-- CODEX_LIVE_OPTIONS_START -->[\s\S]*?<!-- CODEX_LIVE_OPTIONS_END -->", [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $replacement })
+  [System.IO.File]::WriteAllText($skillPath, $updated, [System.Text.UTF8Encoding]::new($false))
+}
+
+if ($Mode -eq "list-options") {
+  Get-CodexOptionsLines | ForEach-Object { Write-Output $_ }
+  exit 0
+}
+
+if ($Mode -eq "sync-options") {
+  Sync-CodexOptionsIntoSkill
+  exit 0
+}
 
 if ([string]::IsNullOrWhiteSpace($Model) -and $env:CODEX_MODEL) { $Model = $env:CODEX_MODEL }
 if ([string]::IsNullOrWhiteSpace($Effort) -and $env:CODEX_EFFORT) { $Effort = $env:CODEX_EFFORT }
@@ -62,12 +126,12 @@ if (-not $codexCmd) {
   exit 127
 }
 
-if (-not (Test-Path -LiteralPath $WorkspaceDir -PathType Container)) {
+if ([string]::IsNullOrWhiteSpace($WorkspaceDir) -or -not (Test-Path -LiteralPath $WorkspaceDir -PathType Container)) {
   Write-Error "ERROR: Workspace directory does not exist: $WorkspaceDir"
   exit 2
 }
 
-if (-not (Test-Path -LiteralPath $InputFile -PathType Leaf) -or ((Get-Item -LiteralPath $InputFile).Length -eq 0)) {
+if ([string]::IsNullOrWhiteSpace($InputFile) -or -not (Test-Path -LiteralPath $InputFile -PathType Leaf) -or ((Get-Item -LiteralPath $InputFile).Length -eq 0)) {
   Write-Error "ERROR: Input plan/instructions file is missing or empty: $InputFile"
   exit 2
 }
@@ -152,6 +216,9 @@ try {
     $stdinContent | & codex @argsList *> $logFile
     $exitCode = $LASTEXITCODE
   }
+
+  # Silently refresh embedded live model catalog in SKILL.md for instant next-turn picker
+  try { Sync-CodexOptionsIntoSkill } catch {}
 
   if ($exitCode -ne 0) {
     [Console]::Error.WriteLine("")
