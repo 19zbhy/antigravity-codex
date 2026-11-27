@@ -106,8 +106,12 @@ for arg in "$@"; do
   prev="$arg"
 done
 
-# Consume stdin so pipes never SIGPIPE
-cat >/dev/null || true
+# Consume stdin and fail if prompt is missing (catches stdin-exhausted retry bugs)
+STDIN_DATA="$(cat || true)"
+if [[ "${MOCK_REQUIRE_STDIN:-0}" == "1" ]] && [[ -z "$STDIN_DATA" ]]; then
+  echo "No prompt provided via stdin." >&2
+  exit 1
+fi
 
 # Optional simulated thread writer lock on first attempt
 if [[ -n "${MOCK_LOCK_FLAG_FILE:-}" ]] && [[ -f "${MOCK_LOCK_FLAG_FILE}" ]]; then
@@ -505,8 +509,8 @@ assert_eq "default resume fails closed without quitting Codex App" "1" "$LOCK_DE
 assert_contains "default resume prints HINT_THREAD_LOCKED" "HINT_THREAD_LOCKED" "$LOCK_DEFAULT_OUT"
 assert_eq "lock flag untouched without --quit-app-on-lock" "1" "$( [[ -f "$LOCK_FLAG" ]] && echo 1 || echo 0 )"
 
-LOCK_RES_OUT="$(MOCK_LOCK_FLAG_FILE="$LOCK_FLAG" CODEX_RELEASE_LOCK_CMD="rm -f '$LOCK_FLAG'" CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$SHARED_WS" "$PLAN_FILE" "$LOCK_OUT" --session "sess-active-1" --quit-app-on-lock 2>&1)"
-assert_contains "--quit-app-on-lock closes app and retries resume" "Closing Codex App gracefully and retrying resume" "$LOCK_RES_OUT"
+LOCK_RES_OUT="$(MOCK_REQUIRE_STDIN=1 MOCK_LOCK_FLAG_FILE="$LOCK_FLAG" CODEX_RELEASE_LOCK_CMD="rm -f '$LOCK_FLAG'" CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$SHARED_WS" "$PLAN_FILE" "$LOCK_OUT" --session "sess-active-1" --quit-app-on-lock 2>&1)"
+assert_contains "--quit-app-on-lock closes app upfront before resuming" "Closing Codex Desktop App gracefully before resuming" "$LOCK_RES_OUT"
 assert_eq "lock flag cleared when --quit-app-on-lock passed" "0" "$( [[ -f "$LOCK_FLAG" ]] && echo 1 || echo 0 )"
 
 echo ""

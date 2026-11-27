@@ -933,6 +933,20 @@ try {
   }
 
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  $allowQuit = $QuitAppOnLock -or ($env:CODEX_QUIT_APP_ON_LOCK -eq "1")
+  if (($Mode -eq "resume") -and $allowQuit) {
+    [Console]::Error.WriteLine("==> [Codex Engineer] Closing Codex Desktop App gracefully before resuming...")
+    if (-not [string]::IsNullOrWhiteSpace($env:CODEX_RELEASE_LOCK_CMD)) {
+      Invoke-Expression $env:CODEX_RELEASE_LOCK_CMD
+    } else {
+      foreach ($procName in @("Codex", "ChatGPT")) {
+        Get-Process -Name $procName -ErrorAction SilentlyContinue | ForEach-Object {
+          try { $_.CloseMainWindow() | Out-Null } catch {}
+        }
+      }
+      Start-Sleep -Seconds 2
+    }
+  }
   $attempt = 1
   while ($true) {
     if ($useJsonEvents) {

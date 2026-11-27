@@ -1215,29 +1215,37 @@ run_codex_cmd() {
   local start_ts end_ts elapsed_s
   local attempt=1
   start_ts="$(date +%s)"
+
+  # When the user explicitly confirmed --quit-app-on-lock for resume, release the lock upfront
+  # so we skip a redundant doomed first attempt.
+  if [[ "$MODE" == "resume" ]] && [[ "$QUIT_APP_ON_LOCK" == "1" ]]; then
+    echo "==> [Codex Engineer] Closing Codex Desktop App gracefully before resuming..." >&2
+    release_codex_app_lock
+  fi
+
   while true; do
     exit_code=0
     if [[ "$USE_JSON_EVENTS" -eq 1 ]]; then
       if [[ "$VERBOSE" == "1" ]]; then
-        "$@" 2>"$LOG_FILE" | tee "$EVENTS_FILE" || exit_code=${PIPESTATUS[0]}
+        "$@" < "$INPUT_FILE" 2>"$LOG_FILE" | tee "$EVENTS_FILE" || exit_code=${PIPESTATUS[0]}
         if [[ -s "$LOG_FILE" ]]; then
           cat "$LOG_FILE" >&2
         fi
       else
-        "$@" >"$EVENTS_FILE" 2>"$LOG_FILE" || exit_code=$?
+        "$@" < "$INPUT_FILE" >"$EVENTS_FILE" 2>"$LOG_FILE" || exit_code=$?
       fi
     else
       if [[ "$VERBOSE" == "1" ]]; then
-        "$@" 2>&1 | tee "$LOG_FILE" || exit_code=${PIPESTATUS[0]}
+        "$@" < "$INPUT_FILE" 2>&1 | tee "$LOG_FILE" || exit_code=${PIPESTATUS[0]}
       else
-        "$@" >"$LOG_FILE" 2>&1 || exit_code=$?
+        "$@" < "$INPUT_FILE" >"$LOG_FILE" 2>&1 || exit_code=$?
       fi
     fi
 
     if [[ "$exit_code" -ne 0 ]] && [[ "$MODE" == "resume" ]] && [[ "$attempt" -eq 1 ]]; then
       if grep -qi "already has an active writer" "$LOG_FILE" "$EVENTS_FILE" 2>/dev/null; then
         if [[ "$QUIT_APP_ON_LOCK" == "1" ]]; then
-          echo "==> [Codex Engineer] Thread is locked by Codex Desktop App ('already has an active writer'). Closing Codex App gracefully and retrying resume..." >&2
+          echo "==> [Codex Engineer] Thread still locked ('already has an active writer'). Waiting briefly and retrying resume..." >&2
           release_codex_app_lock
           attempt=2
           continue
@@ -1349,7 +1357,7 @@ case "$MODE" in
       ${OVERRIDE_FLAGS[@]+"${OVERRIDE_FLAGS[@]}"} \
       ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
       ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
-      "$PROMPT_HEADER" < "$INPUT_FILE"
+      "$PROMPT_HEADER"
     ;;
 
   review)
@@ -1367,7 +1375,7 @@ case "$MODE" in
       ${OVERRIDE_FLAGS[@]+"${OVERRIDE_FLAGS[@]}"} \
       ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
       ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
-      "$PROMPT_HEADER" < "$INPUT_FILE"
+      "$PROMPT_HEADER"
     ;;
 
   resume)
@@ -1414,7 +1422,7 @@ case "$MODE" in
         ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
         ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
         "$SESSION_ID" \
-        - < "$INPUT_FILE"
+        -
     else
       echo "==> [Codex Engineer] Explicitly resuming latest Codex session (--last) in: $WORKSPACE_DIR"
       run_codex_cmd codex exec \
@@ -1427,7 +1435,7 @@ case "$MODE" in
         ${OVERRIDE_FLAGS[@]+"${OVERRIDE_FLAGS[@]}"} \
         ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
         ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
-        - < "$INPUT_FILE"
+        -
     fi
     ;;
 
@@ -1453,7 +1461,7 @@ case "$MODE" in
       ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
       ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
       "$SESSION_ID" \
-      - < "$INPUT_FILE"
+      -
     ;;
 
   *)
