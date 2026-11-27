@@ -23,12 +23,7 @@ description: >-
 3. 记住用户的选择（选“沿用本机默认配置”的项在 Phase 3 中不传覆盖参数，直接沿用 `~/.codex/config.toml`）。每次 `run-codex.sh` 执行后会自动静默刷新下方快照，随 Codex 更新保持同步。
 
 <!-- CODEX_LIVE_OPTIONS_START -->
-- default_model: deepseek-coder
-- default_effort: default
-- default_tier: default
-- models: (run codex once to populate ~/.codex/models_cache.json)
-- efforts: low, medium, high, xhigh
-- service_tiers: priority (快速/Fast), default (标准), flex (弹性省流)
+- (not synced yet)
 <!-- CODEX_LIVE_OPTIONS_END -->
 
 ---

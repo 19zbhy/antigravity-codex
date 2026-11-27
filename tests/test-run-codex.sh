@@ -2,11 +2,15 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RUNNER="${REPO_ROOT}/plugin/skills/codex/scripts/run-codex.sh"
 INSTALLER="${REPO_ROOT}/install.sh"
 
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/antigravity-codex-test.XXXXXX")"
 trap 'rm -rf "$TMP_ROOT"' EXIT
+
+# Copy plugin into an isolated temp copy so running tests NEVER modifies tracked repo files
+cp -R "${REPO_ROOT}/plugin" "${TMP_ROOT}/plugin"
+RUNNER="${TMP_ROOT}/plugin/skills/codex/scripts/run-codex.sh"
+chmod +x "$RUNNER"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -97,8 +101,10 @@ if [[ -n "${MOCK_SLEEP:-}" ]]; then
   sleep "${MOCK_SLEEP}"
 fi
 
-echo "session id: ${MOCK_SESSION_ID:-11111111-2222-3333-4444-555555555555}"
-if [[ -n "$OUT_FILE" ]]; then
+if [[ "${MOCK_NO_SESSION:-0}" != "1" ]]; then
+  echo "session id: ${MOCK_SESSION_ID:-11111111-2222-3333-4444-555555555555}"
+fi
+if [[ -n "$OUT_FILE" ]] && [[ "${MOCK_NO_SUMMARY:-0}" != "1" ]]; then
   echo "Mock summary completed." > "$OUT_FILE"
 fi
 exit 0
@@ -186,7 +192,7 @@ assert_eq "codex not invoked when --worktree unsupported" "" "$(cat "$ARGS_LOG")
 CODEX_HOME="$CODEX_HOME_1" "$RUNNER" execute "$GIT_WS" "$PLAN_FILE" --worktree >/dev/null
 assert_contains "--worktree passed when supported in git repo" "--worktree" "$(cat "$ARGS_LOG")"
 
-echo "=== Test 4: Session ID capture & pinned resume ==="
+echo "=== Test 4: Session ID capture, stale artifact reset, & fail-closed resume ==="
 : > "$ARGS_LOG"
 SESS_OUT="${TMP_ROOT}/pinned/last.md"
 MOCK_SESSION_ID="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" CODEX_HOME="$CODEX_HOME_1" "$RUNNER" execute "$WORKSPACE" "$PLAN_FILE" "$SESS_OUT" >/dev/null
@@ -199,9 +205,33 @@ RES_ARGS="$(cat "$ARGS_LOG")"
 assert_contains "resume uses pinned session ID" "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" "$RES_ARGS"
 assert_not_contains "resume does not use --last when session ID pinned" "--last" "$RES_ARGS"
 
+# Task B reuses same output path without emitting session ID or summary -> stale artifacts must be cleared
+TASK_B_OUT="$(MOCK_NO_SESSION=1 MOCK_NO_SUMMARY=1 CODEX_HOME="$CODEX_HOME_1" "$RUNNER" execute "$WORKSPACE" "$PLAN_FILE" "$SESS_OUT")"
+assert_not_contains "stale summary is not reprinted" "Mock summary completed." "$TASK_B_OUT"
+assert_eq "stale session_id file removed" "0" "$( [[ -f "${TMP_ROOT}/pinned/last.session_id" ]] && echo 1 || echo 0 )"
+
+# Resume without pinned session ID fails closed by default
 : > "$ARGS_LOG"
-CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$WORKSPACE" "$PLAN_FILE" "${TMP_ROOT}/no_sid.md" >/dev/null
-assert_contains "resume falls back to --last when no session ID file" "--last" "$(cat "$ARGS_LOG")"
+set +e
+RES_FAIL_ERR="$(CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$WORKSPACE" "$PLAN_FILE" "$SESS_OUT" 2>&1)"
+RES_FAIL_RC=$?
+set -e
+assert_eq "resume fails closed without pinned session ID" "2" "$RES_FAIL_RC"
+assert_contains "resume fail-closed error message" "No pinned session ID found" "$RES_FAIL_ERR"
+assert_eq "codex not invoked on fail-closed resume" "" "$(cat "$ARGS_LOG")"
+
+# Explicit --last resumes latest session
+: > "$ARGS_LOG"
+CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$WORKSPACE" "$PLAN_FILE" "$SESS_OUT" --last >/dev/null
+assert_contains "resume with explicit --last passes --last" "--last" "$(cat "$ARGS_LOG")"
+
+# Default temp mode retains printed log file after exit
+TEMP_MODE_OUT="$(CODEX_HOME="$CODEX_HOME_1" "$RUNNER" execute "$WORKSPACE" "$PLAN_FILE")"
+TEMP_LOG_PATH="$(printf '%s\n' "$TEMP_MODE_OUT" | sed -n 's/.*Full process log: //p' | head -n 1)"
+assert_eq "temp-mode log file still exists after exit" "1" "$( [[ -n "$TEMP_LOG_PATH" && -f "$TEMP_LOG_PATH" ]] && echo 1 || echo 0 )"
+if [[ -n "$TEMP_LOG_PATH" ]]; then
+  rm -rf "$(dirname "$TEMP_LOG_PATH")"
+fi
 
 echo "=== Test 5: Read-only review & custom provider fallback ==="
 : > "$ARGS_LOG"
@@ -231,6 +261,7 @@ INSTALLED_SKILL="${FAKE_HOME}/.gemini/config/plugins/codex-collaborator/skills/c
 assert_contains "installer replaced <USER_HOME>" "${FAKE_HOME}/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh" "$(cat "$INSTALLED_SKILL")"
 assert_not_contains "no <USER_HOME> placeholder left" "<USER_HOME>" "$(cat "$INSTALLED_SKILL")"
 assert_contains "installer synced live model cache" "gpt-6.2-sol (GPT-6.2-Sol)" "$(cat "$INSTALLED_SKILL")"
+assert_contains "tracked repo SKILL.md template stayed clean" "(not synced yet)" "$(cat "${REPO_ROOT}/plugin/skills/codex/SKILL.md")"
 
 echo ""
 echo "Summary: ${PASS_COUNT} passed, ${FAIL_COUNT} failed."

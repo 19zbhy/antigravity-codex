@@ -17,7 +17,7 @@ Usage:
   run-codex.sh sync-options [skill_md_path]
   run-codex.sh execute <workspace_dir> <plan_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--worktree] [--no-isolate] [--verbose]
   run-codex.sh review  <workspace_dir> <spec_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate] [--verbose]
-  run-codex.sh resume  <workspace_dir> <fix_file>  [output_last_message_file] [--session <id>] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate] [--verbose]
+  run-codex.sh resume  <workspace_dir> <fix_file>  [output_last_message_file] [--session <id> | --last] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate] [--verbose]
 
 Environment variables (overridden by CLI flags):
   CODEX_MODEL       Override model name (defaults to top-level ~/.codex/config.toml)
@@ -231,6 +231,7 @@ shift 2
 
 OUTPUT_FILE=""
 SESSION_ID=""
+ALLOW_LAST="0"
 MODEL="${CODEX_MODEL:-}"
 EFFORT="${CODEX_EFFORT:-}"
 TIER="${CODEX_TIER:-}"
@@ -265,6 +266,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "ERROR: --session requires a value" >&2; exit 2; }
       SESSION_ID="$2"
       shift 2
+      ;;
+    --last)
+      ALLOW_LAST="1"
+      shift
       ;;
     --worktree)
       USE_WORKTREE="1"
@@ -305,7 +310,8 @@ if [[ ! -f "$INPUT_FILE" ]] || [[ ! -s "$INPUT_FILE" ]]; then
   exit 2
 fi
 
-# Portable BSD (macOS) & GNU (Linux) unique temp directory when OUTPUT_FILE is omitted
+# Portable BSD (macOS) & GNU (Linux) unique temp directory when OUTPUT_FILE is omitted.
+# Kept on disk after completion so printed log/session paths remain valid for inspection or resume.
 TMP_RUN_DIR=""
 if [[ -n "$OUTPUT_FILE" ]]; then
   mkdir -p "$(dirname "$OUTPUT_FILE")"
@@ -318,13 +324,6 @@ else
   SESSION_FILE="${TMP_RUN_DIR}/session.id"
 fi
 OUT_FLAGS=(-o "$OUTPUT_FILE")
-
-cleanup() {
-  if [[ -n "$TMP_RUN_DIR" ]] && [[ "${RUN_FAILED:-0}" -eq 0 ]]; then
-    rm -rf "$TMP_RUN_DIR"
-  fi
-}
-trap cleanup EXIT
 
 cd "$WORKSPACE_DIR"
 
@@ -459,6 +458,8 @@ fi
 
 case "$MODE" in
   execute)
+    # Reset stale artifacts so a new task can never inherit an older run's summary or session ID
+    rm -f "$OUTPUT_FILE" "$SESSION_FILE"
     PROMPT_HEADER="You are the Principal Software Engineer in a Google Antigravity + OpenAI Codex workflow. <stdin> contains the user-approved specification defining the goal, UX/business behavior, edge cases, scope boundaries, and acceptance criteria inside $(pwd). You own the 'How': inspect the relevant code, design clean and idiomatic engineering implementations matching existing codebase conventions, and strictly respect scope boundaries. Keep command outputs concise: never dump full large files or raw multi-hundred-line logs to stdout; prefer targeted line ranges or summarized checks. Do not run git commit or git push. Before finishing, run the relevant build, typecheck, lint, and test commands yourself inside the workspace and fix any failures on the spot so you deliver working, verified code in one pass. End with a concise technical summary of files changed and verification commands executed."
     echo "==> [Codex Engineer] Starting implementation & self-test in: $WORKSPACE_DIR"
     echo "==> [Codex Engineer] Spec file: $INPUT_FILE"
@@ -474,6 +475,8 @@ case "$MODE" in
     ;;
 
   review)
+    # Reset stale artifacts from previous runs
+    rm -f "$OUTPUT_FILE" "$SESSION_FILE"
     PROMPT_HEADER="You are a Principal Code Reviewer & Architecture Auditor in a Google Antigravity + OpenAI Codex workflow. You are running in strict read-only mode inside $(pwd) — do not attempt to modify any files. Read the audit scope in <stdin>, inspect the relevant source files or git diff concisely (never dump full large files to stdout), and report concrete findings grouped by severity (Critical / Warning / Suggestion) with exact file:line references and actionable recommendations."
     echo "==> [Codex Reviewer] Starting read-only audit in: $WORKSPACE_DIR"
     echo "==> [Codex Reviewer] Audit spec: $INPUT_FILE"
@@ -491,6 +494,8 @@ case "$MODE" in
     if [[ -z "$SESSION_ID" ]] && [[ -f "$SESSION_FILE" ]]; then
       SESSION_ID="$(head -n 1 "$SESSION_FILE" | tr -d '[:space:]' || true)"
     fi
+    # Reset stale summary so a resume run never reprints a previous turn's summary
+    rm -f "$OUTPUT_FILE"
     echo "==> [Codex Engineer] Follow-up review feedback: $INPUT_FILE"
     if [[ -n "$SESSION_ID" ]]; then
       echo "==> [Codex Engineer] Resuming pinned Codex session '${SESSION_ID}' in: $WORKSPACE_DIR"
@@ -504,8 +509,8 @@ case "$MODE" in
         ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
         "$SESSION_ID" \
         - < "$INPUT_FILE"
-    else
-      echo "==> [Codex Engineer] No pinned session ID found; falling back to --last in: $WORKSPACE_DIR"
+    elif [[ "$ALLOW_LAST" == "1" ]]; then
+      echo "==> [Codex Engineer] Explicitly resuming latest Codex session (--last) in: $WORKSPACE_DIR"
       run_codex_cmd codex exec \
         "${APPROVAL_FLAGS[@]}" \
         --color never \
@@ -516,6 +521,9 @@ case "$MODE" in
         ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
         ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
         - < "$INPUT_FILE"
+    else
+      echo "ERROR: No pinned session ID found for resume (checked --session and ${SESSION_FILE}). Pass --session <id> or --last explicitly." >&2
+      exit 2
     fi
     ;;
 

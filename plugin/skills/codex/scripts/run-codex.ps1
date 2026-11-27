@@ -43,6 +43,7 @@ param(
 
   [switch]$Worktree,
   [switch]$NoIsolate,
+  [switch]$Last,
   [switch]$VerboseOutput
 )
 
@@ -282,12 +283,17 @@ try {
   $stdinContent = Get-Content -LiteralPath $InputFile -Raw -Encoding UTF8
 
   if ($Mode -eq "execute") {
+    # Reset stale artifacts so a new task can never inherit an older run's summary or session ID
+    if (Test-Path -LiteralPath $OutputFile)  { Remove-Item -LiteralPath $OutputFile  -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $sessionFile) { Remove-Item -LiteralPath $sessionFile -Force -ErrorAction SilentlyContinue }
     $cwd = (Get-Location).Path
     $promptHeader = "You are the Principal Software Engineer in a Google Antigravity + OpenAI Codex workflow. <stdin> contains the user-approved specification defining the goal, UX/business behavior, edge cases, scope boundaries, and acceptance criteria inside $cwd. You own the 'How': inspect the relevant code, design clean and idiomatic engineering implementations matching existing codebase conventions, and strictly respect scope boundaries. Keep command outputs concise: never dump full large files or raw multi-hundred-line logs to stdout; prefer targeted line ranges or summarized checks. Do not run git commit or git push. Before finishing, run the relevant build, typecheck, lint, and test commands yourself inside the workspace and fix any failures on the spot so you deliver working, verified code in one pass. End with a concise technical summary of files changed and verification commands executed."
     Write-Output "==> [Codex Engineer] Starting implementation & self-test in: $WorkspaceDir"
     Write-Output "==> [Codex Engineer] Spec file: $InputFile"
     $argsList = @("exec") + $approvalFlags + @("--color", "never") + $isolateFlags + $worktreeFlags + $overrideFlags + $gitFlags + $outFlags + @($promptHeader)
   } elseif ($Mode -eq "review") {
+    if (Test-Path -LiteralPath $OutputFile)  { Remove-Item -LiteralPath $OutputFile  -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $sessionFile) { Remove-Item -LiteralPath $sessionFile -Force -ErrorAction SilentlyContinue }
     $cwd = (Get-Location).Path
     $promptHeader = "You are a Principal Code Reviewer & Architecture Auditor in a Google Antigravity + OpenAI Codex workflow. You are running in strict read-only mode inside $cwd - do not attempt to modify any files. Read the audit scope in <stdin>, inspect the relevant source files or git diff concisely (never dump full large files to stdout), and report concrete findings grouped by severity (Critical / Warning / Suggestion) with exact file:line references and actionable recommendations."
     Write-Output "==> [Codex Reviewer] Starting read-only audit in: $WorkspaceDir"
@@ -297,13 +303,17 @@ try {
     if ([string]::IsNullOrWhiteSpace($Session) -and (Test-Path -LiteralPath $sessionFile)) {
       $Session = ((Get-Content -LiteralPath $sessionFile -TotalCount 1 -Encoding UTF8) -join "").Trim()
     }
+    if (Test-Path -LiteralPath $OutputFile) { Remove-Item -LiteralPath $OutputFile -Force -ErrorAction SilentlyContinue }
     Write-Output "==> [Codex Engineer] Follow-up review feedback: $InputFile"
     if (-not [string]::IsNullOrWhiteSpace($Session)) {
       Write-Output "==> [Codex Engineer] Resuming pinned Codex session '$Session' in: $WorkspaceDir"
       $argsList = @("exec") + $approvalFlags + @("--color", "never", "resume") + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @($Session, "-")
-    } else {
-      Write-Output "==> [Codex Engineer] No pinned session ID found; falling back to --last in: $WorkspaceDir"
+    } elseif ($Last) {
+      Write-Output "==> [Codex Engineer] Explicitly resuming latest Codex session (--last) in: $WorkspaceDir"
       $argsList = @("exec") + $approvalFlags + @("--color", "never", "resume", "--last") + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @("-")
+    } else {
+      [Console]::Error.WriteLine("ERROR: No pinned session ID found for resume (checked -Session and $sessionFile). Pass -Session <id> or -Last explicitly.")
+      exit 2
     }
   }
 
@@ -350,8 +360,5 @@ try {
     }
   }
 } finally {
-  if ($tmpRunDir -and (-not $runFailed) -and (Test-Path -LiteralPath $tmpRunDir)) {
-    Remove-Item -LiteralPath $tmpRunDir -Recurse -Force -ErrorAction SilentlyContinue
-  }
   Pop-Location
 }

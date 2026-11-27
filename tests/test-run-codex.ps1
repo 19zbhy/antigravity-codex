@@ -7,11 +7,14 @@
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$runner = Join-Path $repoRoot "plugin\skills\codex\scripts\run-codex.ps1"
 $installer = Join-Path $repoRoot "install.ps1"
 
 $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("antigravity-codex-ps-test-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $tmpRoot -Force | Out-Null
+
+# Copy plugin into temp dir so running tests never modifies tracked repo files
+Copy-Item -Path (Join-Path $repoRoot "plugin") -Destination (Join-Path $tmpRoot "plugin") -Recurse -Force
+$runner = Join-Path $tmpRoot "plugin\skills\codex\scripts\run-codex.ps1"
 
 $script:pass = 0
 $script:fail = 0
@@ -76,12 +79,14 @@ for %%A in (%*) do (
   if "!PREV!"=="-o" set "OUT_FILE=%%~A"
   set "PREV=%%~A"
 )
-if not "%MOCK_SESSION_ID%"=="" (
-  echo session id: %MOCK_SESSION_ID%
-) else (
-  echo session id: 11111111-2222-3333-4444-555555555555
+if not "%MOCK_NO_SESSION%"=="1" (
+  if not "%MOCK_SESSION_ID%"=="" (
+    echo session id: %MOCK_SESSION_ID%
+  ) else (
+    echo session id: 11111111-2222-3333-4444-555555555555
+  )
 )
-if not "!OUT_FILE!"=="" (
+if not "!OUT_FILE!"=="" if not "%MOCK_NO_SUMMARY%"=="1" (
   echo Mock summary completed.>"!OUT_FILE!"
 )
 exit /b 0
@@ -140,6 +145,25 @@ respect_system_proxy = true
   $resArgs = (Get-Content -LiteralPath $argsLog -Raw)
   Assert-Contains "resume uses pinned session ID" "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" $resArgs
   Assert-NotContains "resume omits --last when pinned" "--last" $resArgs
+
+  # Stale session & summary reset on new execute without session/summary
+  $env:MOCK_NO_SESSION = "1"
+  $env:MOCK_NO_SUMMARY = "1"
+  $taskBOut = (& $runner execute $workspace $planFile $pinnedOut) -join "`n"
+  $env:MOCK_NO_SESSION = ""
+  $env:MOCK_NO_SUMMARY = ""
+  Assert-NotContains "stale summary not reprinted" "Mock summary completed." $taskBOut
+  Assert-Eq "stale session_id removed" "False" "$(Test-Path -LiteralPath (Join-Path $tmpRoot 'pinned\last.session_id'))"
+
+  # Resume fails closed without pinned session ID unless -Last is passed
+  $resFailOut = (& pwsh -NoProfile -File $runner resume $workspace $planFile $pinnedOut 2>&1) -join "`n"
+  $resFailRc = $LASTEXITCODE
+  Assert-Eq "resume fails closed without pinned session ID" "2" "$resFailRc"
+  Assert-Contains "resume fail-closed message" "No pinned session ID found" $resFailOut
+
+  if (Test-Path $argsLog) { Remove-Item $argsLog -Force }
+  & $runner resume $workspace $planFile $pinnedOut -Last | Out-Null
+  Assert-Contains "resume with -Last passes --last" "--last" (Get-Content -LiteralPath $argsLog -Raw)
 
   Write-Output "=== Test 4: Strict read-only review ==="
   if (Test-Path $argsLog) { Remove-Item $argsLog -Force }
