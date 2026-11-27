@@ -304,6 +304,15 @@ respect_system_proxy = true
   Assert-Contains "cleanup-worktree deletes merged branch" "Deleted branch: codex/test-wt" $cleanOk
   Assert-Eq "linked worktree directory removed" "False" "$(Test-Path -LiteralPath $wtLinked)"
 
+  # Inline -Prompt fast path (no separate plan file needed) & mutual exclusion
+  $inlineOut = (& pwsh -NoProfile -File $runner resume $workspace -Session "sess-active-1" -Prompt "Start all 5 widgets" 2>&1) -join "`n"
+  Assert-Contains "-Prompt fast path runs resume cleanly" "Completed cleanly" $inlineOut
+
+  $inlineMutexOut = (& pwsh -NoProfile -File $runner execute $workspace $planFile -Prompt "Conflicting prompt" 2>&1) -join "`n"
+  $inlineMutexRc = $LASTEXITCODE
+  Assert-Eq "input file + -Prompt fails closed" "2" "$inlineMutexRc"
+  Assert-Contains "input file + -Prompt error" "mutually exclusive" $inlineMutexOut
+
   $env:Path = $origPath
   Write-Output ""
   Write-Output "Summary: $script:pass passed, $script:fail failed."

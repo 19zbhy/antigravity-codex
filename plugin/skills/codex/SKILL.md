@@ -55,7 +55,7 @@ description: >-
 ## Phase 1：任务分级、快速探路与“人话”任务书（Antigravity）
 
 0. **任务分级：轻量操作直达快车道（Fast Path）vs 正式方案门禁（Full Plan Path）**：
-   - **快车道（免写 `implementation_plan.md`、免等 `Proceed`）**：若用户需求是**目标单一明确、无不可逆破坏风险**的轻量操作或小改动——例如：启停/重启服务或小组件、运行构建/测试/脚本、查询运行状态或日志、明确的一两行微调、或只读代码审查（`review`）——**禁止做多轮冗长摸排、不要写 4 大模块正式方案卡片**！直接把简洁指令写入 `<Artifact Directory Path>/scratch/codex_task.md`，**立即跳到 Phase 3 调用 `run-codex.sh` 交给 Codex 执行**。
+   - **快车道（1 轮直达，免写任何任务文件、免等 `Proceed`）**：若用户需求是**目标单一明确、无不可逆破坏风险**的轻量操作或小改动——例如：启停/重启服务或小组件、运行构建/测试/脚本、查询运行状态或日志、明确的一两行微调、或只读代码审查（`review`）——**禁止做多轮冗长摸排、也不要先 `write_file` 写临时文件**！直接用 `--prompt "<简洁任务指令>"`（Windows 为 `-Prompt`）在**本轮直接调用 `run-codex.sh`** 交给 Codex 执行（例如：`run-codex.sh resume "/path/to/ws" --session <id> --prompt "启动全部 5 个小组件并确认运行状态"`）。
    - **正式门禁（走下方 Phase 1 → Phase 2）**：涉及跨文件功能开发、架构重构、多方案取舍、或存在删除/覆盖/配置修改等风险的任务，先并行只读摸排（**尽量合并在 1 轮内完成**），再出 `implementation_plan.md` 等待用户点击 **Proceed**。
 
 1. **严禁越权改代码 + 优先感知跨端共享上下文**：
@@ -130,8 +130,8 @@ description: >-
 <USER_HOME>/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh resume /absolute/path/to/workspace /absolute/path/to/artifact_dir/scratch/codex_fix_instructions.md /absolute/path/to/artifact_dir/scratch/codex_last_message.md
 ```
 
-3. **单点回写共享状态 + 用“人话”向用户交付成果**：
-   - **共享项目状态回写（Single-Writer）**：若工作区存在 `.agents/state.md`，由 Antigravity 在验收通过后作为唯一写回口精简更新（控制在 50 行内：本次完成目标、`Last Updated By: /codex`、关键改动、遗留问题与下一步）；若配置了 `basic-memory` MCP 且本次产生了值得长期保留的架构决策或踩坑记录，一并沉淀写入，确保切回独立 Codex 时立即可感知。
+3. **单点回写共享状态（仅代码/里程碑改动时）+ 用“人话”向用户交付成果**：
+   - **共享项目状态回写（Single-Writer）**：**仅当本次任务产生了实质代码/配置改动或里程碑推进**，且工作区存在 `.agents/state.md` 时，才由 Antigravity 作为唯一写回口精简更新（控制在 50 行内）；对于纯启停进程、查状态、跑测试等**未改动源码的轻量操作，跳过回写 `.agents/state.md` 和多余的 `git status` 检查**，直接 1 轮向用户汇报结果。若配置了 `basic-memory` MCP 且产生了值得长期保留的架构决策或踩坑记录，按需沉淀写入。
    - 摒弃生硬晦涩的终端日志堆砌，用通俗清晰的语言告诉用户：
      - **做好了什么**：实际实现的效果与使用方式；
      - **动了哪里**：新增/修改的核心文件列表（附可点击的 `file://` 链接）及各自作用；

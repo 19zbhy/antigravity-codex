@@ -50,6 +50,9 @@ param(
   [Parameter(Mandatory = $false)]
   [string]$Schema = "",
 
+  [Parameter(Mandatory = $false)]
+  [string]$Prompt = "",
+
   [switch]$ExcludeState,
   [switch]$Worktree,
   [switch]$Structured,
@@ -731,8 +734,19 @@ if ([string]::IsNullOrWhiteSpace($WorkspaceDir) -or -not (Test-Path -LiteralPath
   exit 2
 }
 
+$tmpPromptFile = ""
+if (-not [string]::IsNullOrWhiteSpace($Prompt)) {
+  if ((-not [string]::IsNullOrWhiteSpace($InputFile)) -and ($InputFile -ne "-")) {
+    [Console]::Error.WriteLine("ERROR: Input file and -Prompt are mutually exclusive.")
+    exit 2
+  }
+  $tmpPromptFile = Join-Path ([System.IO.Path]::GetTempPath()) ("codex-prompt-" + [guid]::NewGuid().ToString("N") + ".txt")
+  [System.IO.File]::WriteAllText($tmpPromptFile, "$Prompt`n", [System.Text.UTF8Encoding]::new($false))
+  $InputFile = $tmpPromptFile
+}
+
 if ([string]::IsNullOrWhiteSpace($InputFile) -or -not (Test-Path -LiteralPath $InputFile -PathType Leaf) -or ((Get-Item -LiteralPath $InputFile).Length -eq 0)) {
-  Write-Error "ERROR: Input plan/instructions file is missing or empty: $InputFile"
+  Write-Error "ERROR: Input plan/instructions file is missing or empty (or pass -Prompt <text>): $InputFile"
   exit 2
 }
 
@@ -1060,5 +1074,8 @@ try {
     }
   }
 } finally {
+  if (-not [string]::IsNullOrWhiteSpace($tmpPromptFile) -and (Test-Path -LiteralPath $tmpPromptFile)) {
+    Remove-Item -LiteralPath $tmpPromptFile -Force -ErrorAction SilentlyContinue
+  }
   Pop-Location
 }

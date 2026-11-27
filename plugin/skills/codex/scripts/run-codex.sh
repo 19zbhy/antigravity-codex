@@ -22,10 +22,10 @@ Usage:
   run-codex.sh list-sessions    <workspace_dir> [--limit <N>]
   run-codex.sh show-session     <session_id> [--turns <N>]
   run-codex.sh cleanup-worktree <worktree_path> [--delete-branch] [--force]
-  run-codex.sh execute <workspace_dir> <plan_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--worktree] [--structured | --schema <file>] [--no-isolate] [--verbose]
-  run-codex.sh review  <workspace_dir> <spec_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--structured | --schema <file>] [--no-isolate] [--verbose]
-  run-codex.sh resume  <workspace_dir> <fix_file>  [output_last_message_file] [--session <id> | --last] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--quit-app-on-lock] [--no-isolate] [--verbose]
-  run-codex.sh fork    <workspace_dir> <plan_file> [output_last_message_file] [--session <id>] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate] [--verbose]
+  run-codex.sh execute <workspace_dir> [<plan_file> [output_last_message_file]] [--prompt <text>] [--output <file>] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--worktree] [--structured | --schema <file>] [--no-isolate] [--verbose]
+  run-codex.sh review  <workspace_dir> [<spec_file> [output_last_message_file]] [--prompt <text>] [--output <file>] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--structured | --schema <file>] [--no-isolate] [--verbose]
+  run-codex.sh resume  <workspace_dir> [<fix_file>  [output_last_message_file]] [--prompt <text>] [--output <file>] [--session <id> | --last] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--quit-app-on-lock] [--no-isolate] [--verbose]
+  run-codex.sh fork    <workspace_dir> [<plan_file> [output_last_message_file]] [--prompt <text>] [--output <file>] [--session <id>] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate] [--verbose]
 
 Environment variables (overridden by CLI flags):
   CODEX_MODEL       Override model name (defaults to top-level ~/.codex/config.toml)
@@ -951,15 +951,16 @@ PY
   exit 0
 fi
 
-if [[ $# -lt 2 ]]; then
+if [[ $# -lt 1 ]]; then
   usage
 fi
 
 WORKSPACE_DIR="$1"
-INPUT_FILE="$2"
-shift 2
+shift
 
+INPUT_FILE=""
 OUTPUT_FILE=""
+PROMPT_TEXT=""
 SESSION_ID=""
 ALLOW_LAST="0"
 MODEL="${CODEX_MODEL:-}"
@@ -972,7 +973,11 @@ SCHEMA_FILE=""
 QUIT_APP_ON_LOCK="${CODEX_QUIT_APP_ON_LOCK:-0}"
 VERBOSE="${CODEX_VERBOSE:-0}"
 
-# Optional 4th positional argument: output_last_message_file (if not starting with --)
+# Optional positional args: <input_file> [output_last_message_file] (when not starting with --)
+if [[ $# -gt 0 ]] && [[ "$1" != --* ]]; then
+  INPUT_FILE="$1"
+  shift
+fi
 if [[ $# -gt 0 ]] && [[ "$1" != --* ]]; then
   OUTPUT_FILE="$1"
   shift
@@ -980,6 +985,16 @@ fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --prompt|-p)
+      [[ $# -ge 2 ]] || { echo "ERROR: --prompt requires a value" >&2; exit 2; }
+      PROMPT_TEXT="$2"
+      shift 2
+      ;;
+    --output|-o)
+      [[ $# -ge 2 ]] || { echo "ERROR: --output requires a file path" >&2; exit 2; }
+      OUTPUT_FILE="$2"
+      shift 2
+      ;;
     --model|-m)
       [[ $# -ge 2 ]] || { echo "ERROR: --model requires a value" >&2; exit 2; }
       MODEL="$2"
@@ -1051,8 +1066,26 @@ if [[ ! -d "$WORKSPACE_DIR" ]]; then
   exit 2
 fi
 
-if [[ ! -f "$INPUT_FILE" ]] || [[ ! -s "$INPUT_FILE" ]]; then
-  echo "ERROR: Input plan/instructions file is missing or empty: $INPUT_FILE" >&2
+TMP_PROMPT_FILE=""
+cleanup_tmp_prompt() {
+  if [[ -n "$TMP_PROMPT_FILE" ]] && [[ -f "$TMP_PROMPT_FILE" ]]; then
+    rm -f "$TMP_PROMPT_FILE"
+  fi
+}
+trap cleanup_tmp_prompt EXIT
+
+if [[ -n "$PROMPT_TEXT" ]]; then
+  if [[ -n "$INPUT_FILE" ]] && [[ "$INPUT_FILE" != "-" ]]; then
+    echo "ERROR: Input file and --prompt are mutually exclusive." >&2
+    exit 2
+  fi
+  TMP_PROMPT_FILE="$(mktemp "${TMPDIR:-/tmp}/codex-prompt.XXXXXX")"
+  printf '%s\n' "$PROMPT_TEXT" > "$TMP_PROMPT_FILE"
+  INPUT_FILE="$TMP_PROMPT_FILE"
+fi
+
+if [[ -z "$INPUT_FILE" ]] || [[ ! -f "$INPUT_FILE" ]] || [[ ! -s "$INPUT_FILE" ]]; then
+  echo "ERROR: Input plan/instructions file is missing or empty (or pass --prompt <text>): ${INPUT_FILE:-<none>}" >&2
   exit 2
 fi
 

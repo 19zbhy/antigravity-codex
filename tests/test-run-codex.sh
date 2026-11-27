@@ -513,6 +513,17 @@ LOCK_RES_OUT="$(MOCK_REQUIRE_STDIN=1 MOCK_LOCK_FLAG_FILE="$LOCK_FLAG" CODEX_RELE
 assert_contains "--quit-app-on-lock closes app upfront before resuming" "Closing Codex Desktop App gracefully before resuming" "$LOCK_RES_OUT"
 assert_eq "lock flag cleared when --quit-app-on-lock passed" "0" "$( [[ -f "$LOCK_FLAG" ]] && echo 1 || echo 0 )"
 
+# Inline --prompt fast path (no separate plan file needed) & mutual exclusion check
+INLINE_OUT="$(MOCK_REQUIRE_STDIN=1 CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$SHARED_WS" --session "sess-active-1" --prompt "Start all 5 widgets" 2>&1)"
+assert_contains "--prompt fast path runs resume cleanly" "Completed cleanly" "$INLINE_OUT"
+
+set +e
+INLINE_MUTEX_ERR="$(CODEX_HOME="$CODEX_HOME_1" "$RUNNER" execute "$SHARED_WS" "$PLAN_FILE" --prompt "Conflicting prompt" 2>&1)"
+INLINE_MUTEX_RC=$?
+set -e
+assert_eq "input file + --prompt fails closed" "2" "$INLINE_MUTEX_RC"
+assert_contains "input file + --prompt error message" "mutually exclusive" "$INLINE_MUTEX_ERR"
+
 echo ""
 echo "Summary: ${PASS_COUNT} passed, ${FAIL_COUNT} failed."
 if [[ "$FAIL_COUNT" -ne 0 ]]; then
