@@ -1,0 +1,12 @@
+{
+  "name": "codex-collaborator",
+  "displayName": "Gemini × Codex 双脑协同 (/codex)",
+  "description": "黄金分工双脑协同工作流：平时默认由 Gemini 独立工作；输入 /codex 时，由 Gemini 负责发散探路、用人话对齐需求边界与终审把关，由 OpenAI Codex CLI 负责自主工程实现与现场自测闭环。",
+  "version": "1.0.0",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "/codex 我想做一个新功能，先帮我发散几个思路，拍板后交给 Codex 落地",
+    "/codex 帮我理清这个模块的重构边界，我确认后让 Codex 负责工程实现与自测",
+    "/codex 排查这个问题的根因并用人话讲清方案，确认后交给 Codex 极速修复"
+  ]
+}

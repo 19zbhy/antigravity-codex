@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" fill="none">
+  <defs>
+    <linearGradient id="geminiGrad" x1="16" y1="16" x2="76" y2="76" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4F8BFF"/>
+      <stop offset="100%" stop-color="#9B72CB"/>
+    </linearGradient>
+    <linearGradient id="codexGrad" x1="52" y1="52" x2="112" y2="112" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#10A37F"/>
+      <stop offset="100%" stop-color="#34D399"/>
+    </linearGradient>
+  </defs>
+  <path d="M46 16 C46 34, 34 46, 16 46 C34 46, 46 58, 46 76 C46 58, 58 46, 76 46 C58 46, 46 34, 46 16 Z" fill="url(#geminiGrad)"/>
+  <rect x="52" y="54" width="60" height="56" rx="14" fill="url(#codexGrad)"/>
+  <path d="M68 73 L79 82 L68 91" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="84" y1="91" x2="98" y2="91" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+</svg>
