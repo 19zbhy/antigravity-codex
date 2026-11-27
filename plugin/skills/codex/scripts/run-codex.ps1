@@ -153,7 +153,11 @@ function Get-CodexProjectLines {
   $pyCode = @'
 import sqlite3, sys
 try:
-    conn = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+    try:
+        conn = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+        conn.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone()
+    except sqlite3.OperationalError:
+        conn = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro&immutable=1", uri=True)
     cur = conn.cursor()
     cur.execute("""
     SELECT p.name, pr.path
@@ -181,7 +185,11 @@ function Get-CodexProjectSessionLines {
   $pyCode = @'
 import datetime, os, sqlite3, sys
 try:
-    conn = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+    try:
+        conn = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+        conn.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone()
+    except sqlite3.OperationalError:
+        conn = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro&immutable=1", uri=True)
     cur = conn.cursor()
     cols = {r[1] for r in cur.execute("PRAGMA table_info(threads)").fetchall()}
     title_expr = "COALESCE(NULLIF(name, ''), NULLIF(title, ''), preview, '')" if "name" in cols else "COALESCE(NULLIF(title, ''), preview, '')"
@@ -595,7 +603,11 @@ if ($Mode -eq "list-sessions") {
     $pyCode = @'
 import datetime, os, sqlite3, sys
 db_path, cwd_target, limit = sys.argv[1], os.path.realpath(sys.argv[2]).rstrip("\\/"), int(sys.argv[3])
-conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+try:
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone()
+except sqlite3.OperationalError:
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro&immutable=1", uri=True)
 cur = conn.cursor()
 cols = {row[1] for row in cur.execute("PRAGMA table_info(threads)").fetchall()}
 title_expr = "COALESCE(NULLIF(name, ''), NULLIF(title, ''), preview, '')" if "name" in cols else "COALESCE(NULLIF(title, ''), preview, '')"
@@ -645,7 +657,11 @@ if ($Mode -eq "show-session") {
   $pyCode = @'
 import json, os, sqlite3, sys
 db_path, sid, max_turns = sys.argv[1], sys.argv[2], int(sys.argv[3])
-conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+try:
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone()
+except sqlite3.OperationalError:
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro&immutable=1", uri=True)
 cols = {r[1] for r in conn.execute("PRAGMA table_info(threads)").fetchall()}
 title_expr = "COALESCE(NULLIF(name, ''), title, '')" if "name" in cols else "COALESCE(title, '')"
 row = conn.execute(f"SELECT rollout_path, cwd, {title_expr}, COALESCE(model, '') FROM threads WHERE id = ?", (sid,)).fetchone()
