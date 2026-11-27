@@ -247,8 +247,11 @@ emit_projects() {
   if [[ ! -f "$state_db" ]]; then
     return 0
   fi
-  if command -v python3 >/dev/null 2>&1; then
-    python3 - "$state_db" <<'PY' 2>/dev/null || true
+  local out=""
+  local py_bin
+  for py_bin in "$(command -v python3 2>/dev/null || true)" "/usr/bin/python3"; do
+    if [[ -n "$py_bin" ]] && [[ -x "$py_bin" ]]; then
+      out="$("$py_bin" - "$state_db" <<'PY' 2>/dev/null || true
 import sqlite3, sys
 conn = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
 cur = conn.cursor()
@@ -266,7 +269,14 @@ for name, path in cur.fetchall():
         print(f"  - {name} | {path}")
 conn.close()
 PY
-  elif command -v sqlite3 >/dev/null 2>&1; then
+)"
+      if [[ -n "$out" ]]; then
+        printf '%s\n' "$out"
+        return 0
+      fi
+    fi
+  done
+  if command -v sqlite3 >/dev/null 2>&1; then
     sqlite3 -readonly "$state_db" \
       "SELECT '  - ' || p.name || ' | ' || pr.path FROM projects p JOIN project_roots pr ON p.id = pr.project_id WHERE pr.position = (SELECT MIN(pr2.position) FROM project_roots pr2 WHERE pr2.project_id = p.id) ORDER BY p.position ASC;" 2>/dev/null || true
   fi
