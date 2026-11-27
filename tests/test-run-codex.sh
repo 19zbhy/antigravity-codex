@@ -104,6 +104,9 @@ fi
 if [[ "${MOCK_NO_SESSION:-0}" != "1" ]]; then
   echo "session id: ${MOCK_SESSION_ID:-11111111-2222-3333-4444-555555555555}"
 fi
+if [[ -n "${MOCK_EXTRA_LOG:-}" ]]; then
+  printf '%s\n' "${MOCK_EXTRA_LOG}"
+fi
 if [[ -n "$OUT_FILE" ]] && [[ "${MOCK_NO_SUMMARY:-0}" != "1" ]]; then
   echo "Mock summary completed." > "$OUT_FILE"
 fi
@@ -220,15 +223,39 @@ assert_eq "resume fails closed without pinned session ID" "2" "$RES_FAIL_RC"
 assert_contains "resume fail-closed error message" "No pinned session ID found" "$RES_FAIL_ERR"
 assert_eq "codex not invoked on fail-closed resume" "" "$(cat "$ARGS_LOG")"
 
-# Explicit --last resumes latest session
+# Explicit --last overrides an existing .session_id file
+MOCK_SESSION_ID="11111111-1111-1111-1111-111111111111" CODEX_HOME="$CODEX_HOME_1" "$RUNNER" execute "$WORKSPACE" "$PLAN_FILE" "$SESS_OUT" >/dev/null
 : > "$ARGS_LOG"
 CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$WORKSPACE" "$PLAN_FILE" "$SESS_OUT" --last >/dev/null
-assert_contains "resume with explicit --last passes --last" "--last" "$(cat "$ARGS_LOG")"
+EXPLICIT_LAST_ARGS="$(cat "$ARGS_LOG")"
+assert_contains "explicit --last passes --last even when .session_id exists" "--last" "$EXPLICIT_LAST_ARGS"
+assert_not_contains "explicit --last does not use stale pinned ID" "11111111-1111-1111-1111-111111111111" "$EXPLICIT_LAST_ARGS"
 
-# Default temp mode retains printed log file after exit
-TEMP_MODE_OUT="$(CODEX_HOME="$CODEX_HOME_1" "$RUNNER" execute "$WORKSPACE" "$PLAN_FILE")"
+# Mutual exclusion: --session + --last fails closed AND preserves existing summary
+echo "Existing summary must survive" > "$SESS_OUT"
+set +e
+MUTEX_ERR="$(CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$WORKSPACE" "$PLAN_FILE" "$SESS_OUT" --session "abc12345" --last 2>&1)"
+MUTEX_RC=$?
+set -e
+assert_eq "--session + --last fails closed" "2" "$MUTEX_RC"
+assert_contains "--session + --last error message" "mutually exclusive" "$MUTEX_ERR"
+assert_contains "existing summary preserved on failed resume" "Existing summary must survive" "$(cat "$SESS_OUT")"
+
+# Mixed log: inspected file containing thread_id must NOT overwrite real session id
+MIXED_OUT="${TMP_ROOT}/mixed/last.md"
+MOCK_SESSION_ID="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" \
+  MOCK_EXTRA_LOG='Example from inspected file: {"thread_id":"bbbbbbbb-cccc-dddd-eeee-ffffffffffff"}' \
+  CODEX_HOME="$CODEX_HOME_1" "$RUNNER" execute "$WORKSPACE" "$PLAN_FILE" "$MIXED_OUT" >/dev/null
+assert_eq "mixed log keeps authoritative session ID" "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" "$(cat "${TMP_ROOT}/mixed/last.session_id")"
+
+# Default temp mode retains log/session AND can be resumed directly via its last_message.md
+TEMP_MODE_OUT="$(MOCK_SESSION_ID="99999999-8888-7777-6666-555555555555" CODEX_HOME="$CODEX_HOME_1" "$RUNNER" execute "$WORKSPACE" "$PLAN_FILE")"
 TEMP_LOG_PATH="$(printf '%s\n' "$TEMP_MODE_OUT" | sed -n 's/.*Full process log: //p' | head -n 1)"
+TEMP_MD_PATH="${TEMP_LOG_PATH%.log}.md"
 assert_eq "temp-mode log file still exists after exit" "1" "$( [[ -n "$TEMP_LOG_PATH" && -f "$TEMP_LOG_PATH" ]] && echo 1 || echo 0 )"
+: > "$ARGS_LOG"
+CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$WORKSPACE" "$PLAN_FILE" "$TEMP_MD_PATH" >/dev/null
+assert_contains "temp-mode run can be resumed via its last_message.md" "99999999-8888-7777-6666-555555555555" "$(cat "$ARGS_LOG")"
 if [[ -n "$TEMP_LOG_PATH" ]]; then
   rm -rf "$(dirname "$TEMP_LOG_PATH")"
 fi

@@ -86,6 +86,9 @@ if not "%MOCK_NO_SESSION%"=="1" (
     echo session id: 11111111-2222-3333-4444-555555555555
   )
 )
+if not "%MOCK_EXTRA_LOG%"=="" (
+  echo %MOCK_EXTRA_LOG%
+)
 if not "!OUT_FILE!"=="" if not "%MOCK_NO_SUMMARY%"=="1" (
   echo Mock summary completed.>"!OUT_FILE!"
 )
@@ -161,9 +164,30 @@ respect_system_proxy = true
   Assert-Eq "resume fails closed without pinned session ID" "2" "$resFailRc"
   Assert-Contains "resume fail-closed message" "No pinned session ID found" $resFailOut
 
+  # Explicit -Last overrides an existing .session_id file
+  $env:MOCK_SESSION_ID = "11111111-1111-1111-1111-111111111111"
+  & $runner execute $workspace $planFile $pinnedOut | Out-Null
   if (Test-Path $argsLog) { Remove-Item $argsLog -Force }
   & $runner resume $workspace $planFile $pinnedOut -Last | Out-Null
-  Assert-Contains "resume with -Last passes --last" "--last" (Get-Content -LiteralPath $argsLog -Raw)
+  $lastArgs = Get-Content -LiteralPath $argsLog -Raw
+  Assert-Contains "resume with -Last passes --last" "--last" $lastArgs
+  Assert-NotContains "resume with -Last ignores pinned ID" "11111111-1111-1111-1111-111111111111" $lastArgs
+
+  # Mutual exclusion: -Session + -Last fails closed and preserves summary
+  [System.IO.File]::WriteAllText($pinnedOut, "Keep this summary", [System.Text.UTF8Encoding]::new($false))
+  $mutexOut = (& pwsh -NoProfile -File $runner resume $workspace $planFile $pinnedOut -Session "abc12345" -Last 2>&1) -join "`n"
+  $mutexRc = $LASTEXITCODE
+  Assert-Eq "-Session + -Last fails closed" "2" "$mutexRc"
+  Assert-Contains "-Session + -Last error message" "mutually exclusive" $mutexOut
+  Assert-Contains "summary preserved on failed resume" "Keep this summary" (Get-Content -LiteralPath $pinnedOut -Raw)
+
+  # Mixed log does not overwrite real session ID
+  $mixedOut = Join-Path $tmpRoot "mixed\last.md"
+  $env:MOCK_SESSION_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+  $env:MOCK_EXTRA_LOG = 'Example from inspected file: {"thread_id":"bbbbbbbb-cccc-dddd-eeee-ffffffffffff"}'
+  & $runner execute $workspace $planFile $mixedOut | Out-Null
+  $env:MOCK_EXTRA_LOG = ""
+  Assert-Eq "mixed log keeps authoritative session ID" "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" ((Get-Content -LiteralPath (Join-Path $tmpRoot "mixed\last.session_id") -Raw).Trim())
 
   Write-Output "=== Test 4: Strict read-only review ==="
   if (Test-Path $argsLog) { Remove-Item $argsLog -Force }

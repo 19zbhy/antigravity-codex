@@ -84,15 +84,16 @@ function Test-TomlFeatureTrue([string]$Key, [string]$Path) {
 
 function Get-SessionIdFromLog([string]$LogPath) {
   if (-not (Test-Path -LiteralPath $LogPath)) { return "" }
-  $sid = ""
+  $fallback = ""
   foreach ($line in (Get-Content -LiteralPath $LogPath -Encoding UTF8)) {
-    if ($line -match '(?i)session[\s_-]*id\s*[:=]\s*"?([0-9a-f-]{8,})"?') {
-      $sid = $Matches[1]
-    } elseif ($line -match '(?i)"thread_id"\s*:\s*"([^"]+)"') {
-      $sid = $Matches[1]
+    if ($line -match '^\s*\{.*"type"\s*:\s*"thread\.started"' -and $line -match '"thread_id"\s*:\s*"([0-9a-fA-F-]{8,})"') {
+      return $Matches[1]
+    }
+    if (-not $fallback -and $line -match '(?i)^\s*session id:\s*([0-9a-f-]{8,})\s*$') {
+      $fallback = $Matches[1]
     }
   }
-  return $sid
+  return $fallback
 }
 
 function Get-CodexOptionsLines {
@@ -192,8 +193,8 @@ if (-not [string]::IsNullOrWhiteSpace($OutputFile)) {
   $tmpRunDir = Join-Path ([System.IO.Path]::GetTempPath()) ("codex-run-" + [guid]::NewGuid().ToString("N"))
   New-Item -ItemType Directory -Path $tmpRunDir -Force | Out-Null
   $OutputFile = Join-Path $tmpRunDir "last_message.md"
-  $logFile = Join-Path $tmpRunDir "run.log"
-  $sessionFile = Join-Path $tmpRunDir "session.id"
+  $logFile = Join-Path $tmpRunDir "last_message.log"
+  $sessionFile = Join-Path $tmpRunDir "last_message.session_id"
 }
 $outFlags = @("-o", $OutputFile)
 $runFailed = $false
@@ -300,20 +301,37 @@ try {
     Write-Output "==> [Codex Reviewer] Audit spec: $InputFile"
     $argsList = @("exec") + $approvalFlags + @("--color", "never") + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @($promptHeader)
   } else {
-    if ([string]::IsNullOrWhiteSpace($Session) -and (Test-Path -LiteralPath $sessionFile)) {
-      $Session = ((Get-Content -LiteralPath $sessionFile -TotalCount 1 -Encoding UTF8) -join "").Trim()
+    if ((-not [string]::IsNullOrWhiteSpace($Session)) -and $Last) {
+      [Console]::Error.WriteLine("ERROR: -Session and -Last are mutually exclusive.")
+      exit 2
     }
-    if (Test-Path -LiteralPath $OutputFile) { Remove-Item -LiteralPath $OutputFile -Force -ErrorAction SilentlyContinue }
-    Write-Output "==> [Codex Engineer] Follow-up review feedback: $InputFile"
+
+    $resumeMode = ""
     if (-not [string]::IsNullOrWhiteSpace($Session)) {
-      Write-Output "==> [Codex Engineer] Resuming pinned Codex session '$Session' in: $WorkspaceDir"
-      $argsList = @("exec") + $approvalFlags + @("--color", "never", "resume") + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @($Session, "-")
+      $resumeMode = "pinned"
     } elseif ($Last) {
-      Write-Output "==> [Codex Engineer] Explicitly resuming latest Codex session (--last) in: $WorkspaceDir"
-      $argsList = @("exec") + $approvalFlags + @("--color", "never", "resume", "--last") + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @("-")
-    } else {
+      $resumeMode = "last"
+    } elseif (Test-Path -LiteralPath $sessionFile) {
+      $Session = ((Get-Content -LiteralPath $sessionFile -TotalCount 1 -Encoding UTF8) -join "").Trim()
+      if (-not [string]::IsNullOrWhiteSpace($Session)) {
+        $resumeMode = "pinned"
+      }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($resumeMode)) {
       [Console]::Error.WriteLine("ERROR: No pinned session ID found for resume (checked -Session and $sessionFile). Pass -Session <id> or -Last explicitly.")
       exit 2
+    }
+
+    # Only reset stale summary AFTER resume target is validated
+    if (Test-Path -LiteralPath $OutputFile) { Remove-Item -LiteralPath $OutputFile -Force -ErrorAction SilentlyContinue }
+    Write-Output "==> [Codex Engineer] Follow-up review feedback: $InputFile"
+    if ($resumeMode -eq "pinned") {
+      Write-Output "==> [Codex Engineer] Resuming pinned Codex session '$Session' in: $WorkspaceDir"
+      $argsList = @("exec") + $approvalFlags + @("--color", "never", "resume") + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @($Session, "-")
+    } else {
+      Write-Output "==> [Codex Engineer] Explicitly resuming latest Codex session (--last) in: $WorkspaceDir"
+      $argsList = @("exec") + $approvalFlags + @("--color", "never", "resume", "--last") + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @("-")
     }
   }
 

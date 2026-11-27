@@ -89,27 +89,36 @@ has_toml_feature_true() {
   ' "$file"
 }
 
+# Extract the authoritative Codex session ID from the log:
+# 1) Prefer the FIRST JSONL thread.started event line: {"type":"thread.started","thread_id":"..."}
+# 2) Fallback: FIRST standalone header line: ^session id: <uuid>$
+# Never lets inspected file contents or later log lines overwrite the real session ID.
 extract_session_id() {
   local log_file="$1"
   if [[ ! -f "$log_file" ]]; then
     return 0
   fi
   awk '
-    {
-      low = tolower($0)
-      if (match(low, /session[[:space:]_-]*id[[:space:]]*[:=][[:space:]]*"?[0-9a-f-]{8,}"?/)) {
+    /^[[:space:]]*\{.*"type"[[:space:]]*:[[:space:]]*"thread\.started"/ {
+      if (match($0, /"thread_id"[[:space:]]*:[[:space:]]*"[0-9a-fA-F-]{8,}"/)) {
         val = substr($0, RSTART, RLENGTH)
-        sub(/^[^:=]*[:=][[:space:]]*"?/, "", val)
-        sub(/"?$/, "", val)
-        sid = val
-      } else if (match(low, /"thread_id"[[:space:]]*:[[:space:]]*"[^"]+"/)) {
-        val = substr($0, RSTART, RLENGTH)
-        sub(/^[^:]*:[[:space:]]*"/, "", val)
+        sub(/^"thread_id"[[:space:]]*:[[:space:]]*"/, "", val)
         sub(/"$/, "", val)
-        sid = val
+        print val
+        found = 1
+        exit
       }
     }
-    END { if (sid != "") print sid }
+    !found && fallback == "" {
+      low = tolower($0)
+      if (low ~ /^[[:space:]]*session id:[[:space:]]*[0-9a-f-]{8,}[[:space:]]*$/) {
+        val = $0
+        sub(/^[[:space:]]*[Ss][Ee][Ss][Ss][Ii][Oo][Nn] [Ii][Dd]:[[:space:]]*/, "", val)
+        sub(/[[:space:]]*$/, "", val)
+        fallback = val
+      }
+    }
+    END { if (!found && fallback != "") print fallback }
   ' "$log_file"
 }
 
@@ -311,7 +320,8 @@ if [[ ! -f "$INPUT_FILE" ]] || [[ ! -s "$INPUT_FILE" ]]; then
 fi
 
 # Portable BSD (macOS) & GNU (Linux) unique temp directory when OUTPUT_FILE is omitted.
-# Kept on disk after completion so printed log/session paths remain valid for inspection or resume.
+# Uses the exact same sibling naming convention (<stem>.md / <stem>.log / <stem>.session_id)
+# and stays on disk after completion so printed paths remain valid for inspection or resume.
 TMP_RUN_DIR=""
 if [[ -n "$OUTPUT_FILE" ]]; then
   mkdir -p "$(dirname "$OUTPUT_FILE")"
@@ -320,8 +330,8 @@ if [[ -n "$OUTPUT_FILE" ]]; then
 else
   TMP_RUN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/codex-run.XXXXXX")"
   OUTPUT_FILE="${TMP_RUN_DIR}/last_message.md"
-  LOG_FILE="${TMP_RUN_DIR}/run.log"
-  SESSION_FILE="${TMP_RUN_DIR}/session.id"
+  LOG_FILE="${TMP_RUN_DIR}/last_message.log"
+  SESSION_FILE="${TMP_RUN_DIR}/last_message.session_id"
 fi
 OUT_FLAGS=(-o "$OUTPUT_FILE")
 
@@ -491,13 +501,38 @@ case "$MODE" in
     ;;
 
   resume)
-    if [[ -z "$SESSION_ID" ]] && [[ -f "$SESSION_FILE" ]]; then
-      SESSION_ID="$(head -n 1 "$SESSION_FILE" | tr -d '[:space:]' || true)"
+    # Explicit option validation & precedence BEFORE touching any existing summary file:
+    # 1) --session and --last are mutually exclusive
+    # 2) Explicit --session <id>
+    # 3) Explicit --last (overrides any existing .session_id file)
+    # 4) Auto-read pinned .session_id file
+    # 5) Fail closed
+    if [[ -n "$SESSION_ID" ]] && [[ "$ALLOW_LAST" == "1" ]]; then
+      echo "ERROR: --session and --last are mutually exclusive." >&2
+      exit 2
     fi
-    # Reset stale summary so a resume run never reprints a previous turn's summary
+
+    RESUME_MODE=""
+    if [[ -n "$SESSION_ID" ]]; then
+      RESUME_MODE="pinned"
+    elif [[ "$ALLOW_LAST" == "1" ]]; then
+      RESUME_MODE="last"
+    elif [[ -f "$SESSION_FILE" ]]; then
+      SESSION_ID="$(head -n 1 "$SESSION_FILE" | tr -d '[:space:]' || true)"
+      if [[ -n "$SESSION_ID" ]]; then
+        RESUME_MODE="pinned"
+      fi
+    fi
+
+    if [[ -z "$RESUME_MODE" ]]; then
+      echo "ERROR: No pinned session ID found for resume (checked --session and ${SESSION_FILE}). Pass --session <id> or --last explicitly." >&2
+      exit 2
+    fi
+
+    # Only reset stale summary AFTER resume target is validated
     rm -f "$OUTPUT_FILE"
     echo "==> [Codex Engineer] Follow-up review feedback: $INPUT_FILE"
-    if [[ -n "$SESSION_ID" ]]; then
+    if [[ "$RESUME_MODE" == "pinned" ]]; then
       echo "==> [Codex Engineer] Resuming pinned Codex session '${SESSION_ID}' in: $WORKSPACE_DIR"
       run_codex_cmd codex exec \
         "${APPROVAL_FLAGS[@]}" \
@@ -509,7 +544,7 @@ case "$MODE" in
         ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
         "$SESSION_ID" \
         - < "$INPUT_FILE"
-    elif [[ "$ALLOW_LAST" == "1" ]]; then
+    else
       echo "==> [Codex Engineer] Explicitly resuming latest Codex session (--last) in: $WORKSPACE_DIR"
       run_codex_cmd codex exec \
         "${APPROVAL_FLAGS[@]}" \
@@ -521,9 +556,6 @@ case "$MODE" in
         ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
         ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
         - < "$INPUT_FILE"
-    else
-      echo "ERROR: No pinned session ID found for resume (checked --session and ${SESSION_FILE}). Pass --session <id> or --last explicitly." >&2
-      exit 2
     fi
     ;;
 
