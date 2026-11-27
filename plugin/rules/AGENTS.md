@@ -1,6 +1,9 @@
 # `/codex` Instant Picker Preload
 
-> **严格触发边界**：本规则**仅**在用户输入 `/codex` 或明确要求“交给 Codex”时生效。日常普通消息请完全忽略本文件，由 Antigravity 直接处理。
+> **严格触发与会话锁定边界**：
+> - 未触发过 `/codex` 的日常普通对话请完全忽略本文件，由 Antigravity 直接处理。
+> - **同一对话首次 `/codex` 选完后自动锁定并沿用**：本对话后续普通消息**无需再敲 `/codex`**，直接沿用已选定的项目、会话与模型/思考深度/响应速度继续协同，不重复弹卡片（除非用户明确说“退出 `/codex`”）。
+> - **同一对话内再次显式输入 `/codex`**：视为用户主动要求重新切换项目、会话或运行档位，重新弹卡片选择。
 
 当用户输入 `/codex` 时，**在第 1 轮直接并行调用 `read_file` 读取 `<USER_HOME>/.gemini/config/plugins/codex-collaborator/skills/codex/SKILL.md` 与 `ask_question`**（不要先单独读文件再弹卡片，直接 1 轮出卡片）。
 
