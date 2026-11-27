@@ -5,7 +5,7 @@
 <h1 align="center">antigravity-codex</h1>
 
 <p align="center">
-  <strong>Antigravity (Gemini) × OpenAI Codex CLI — On-Demand Dual-Brain Workflow (<code>/codex</code>)</strong>
+  <strong>Google Antigravity × OpenAI Codex — On-Demand Dual-Agent Workflow (<code>/codex</code>)</strong>
 </p>
 
 <p align="center">
@@ -13,20 +13,20 @@
 </p>
 
 <p align="center">
-  <img src="./assets/workflow-preview.png" alt="Antigravity x OpenAI Codex Workflow" width="100%" />
+  <img src="./assets/workflow-preview.png" alt="Antigravity x Codex Workflow" width="100%" />
 </p>
 
 ---
 
 ## Why `antigravity-codex`?
 
-A lightweight, zero-dependency native plugin for **Google Antigravity** that pairs **Gemini** and **OpenAI Codex CLI** using their complementary strengths — **only when you type `/codex`**:
+A lightweight, zero-dependency native plugin for **Google Antigravity** that pairs **Antigravity** and **Codex CLI** using their complementary strengths — **only when you type `/codex`**:
 
-- **Zero Intrusion by Default**: Ships with `skills/codex` only (no global `rules/AGENTS.md`). Everyday chats and small edits stay 100% native Gemini with zero context bloat.
+- **Zero Intrusion by Default**: Ships with `skills/codex` only (no global `rules/AGENTS.md`). Everyday chats and small edits stay 100% native Antigravity with zero context bloat.
 - **Native Antigravity Approval UI**: Uses Antigravity's native `implementation_plan.md` artifact (`RequestFeedback: true`) to render an interactive **Proceed** button and inline commenting before a single line of code is touched.
-- **Golden Division of Labor (`Why & What` vs. `How`)**:
-  - **Gemini (Product Strategist & Final Reviewer)** owns divergent brainstorming, human-readable specs, edge-case guardrails, scope boundaries, and final diff review.
-  - **OpenAI Codex CLI (Principal Engineer)** owns idiomatic implementation and runs build/lint/unit-test loops on the spot before handing back working code.
+- **Clear Separation of Responsibilities (`Why & What` vs. `How`)**:
+  - **Antigravity (Architecture & Final Review)** owns divergent brainstorming, human-readable specs, edge-case guardrails, scope boundaries, and final diff review.
+  - **Codex CLI (Engineering & Self-Test)** owns idiomatic implementation and runs build/lint/unit-test loops on the spot before handing back working code.
 - **Zero External Bridges & 100% Official Channels**: No MCP servers, no reverse proxies, no tmux wrappers — just a native Antigravity plugin invoking the official `codex exec` / `codex exec resume --last` CLI.
 - **Quota-Friendly for Heavy Tasks**: Offloads multi-file coding and compile/test fix loops into a single shell turn backed by your OpenAI Codex subscription/API.
 - **Cross-Platform**: Works out of the box on **macOS, Linux, and Windows (PowerShell)**.
@@ -38,27 +38,27 @@ A lightweight, zero-dependency native plugin for **Google Antigravity** that pai
 ```mermaid
 sequenceDiagram
     actor User as User
-    participant Gemini as Antigravity (Gemini · Why & What)
-    participant Codex as OpenAI Codex CLI (How & Self-Test)
+    participant Antigravity as Antigravity (Why & What)
+    participant Codex as Codex CLI (How & Self-Test)
 
-    Note over User,Gemini: Normal messages: Gemini handles everything directly
-    User->>Gemini: /codex <your feature, refactor, or bugfix>
+    Note over User,Antigravity: Normal messages: Antigravity handles everything directly
+    User->>Antigravity: /codex <your feature, refactor, or bugfix>
     opt Open-ended request
-        Gemini-->>User: 2-3 high-level options & trade-offs in plain language
-        User->>Gemini: Pick direction
+        Antigravity-->>User: 2-3 high-level options & trade-offs in plain language
+        User->>Antigravity: Pick direction
     end
-    Gemini->>Gemini: Read-only codebase exploration -> implementation_plan.md
-    Gemini-->>User: Interactive Plan Card with [Proceed] button (pauses)
-    User->>Gemini: Inline comments or click [Proceed]
-    Gemini->>Codex: run-codex.sh / run-codex.ps1 execute <workspace> <plan>
+    Antigravity->>Antigravity: Read-only codebase exploration -> implementation_plan.md
+    Antigravity-->>User: Interactive Plan Card with [Proceed] button (pauses)
+    User->>Antigravity: Inline comments or click [Proceed]
+    Antigravity->>Codex: run-codex.sh / run-codex.ps1 execute <workspace> <plan>
     Codex->>Codex: Autonomous coding + build/lint/test self-verification
-    Codex-->>Gemini: Verified code + concise technical summary
-    Gemini->>Gemini: Independent git diff & scope audit
+    Codex-->>Antigravity: Verified code + concise technical summary
+    Antigravity->>Antigravity: Independent git diff & scope audit
     alt Missing requirements or boundary issues
-        Gemini->>Codex: run-codex resume --last <fix_instructions> (up to 3 rounds)
-        Codex-->>Gemini: Targeted fix completed
+        Antigravity->>Codex: run-codex resume --last <fix_instructions> (up to 3 rounds)
+        Codex-->>Antigravity: Targeted fix completed
     end
-    Gemini-->>User: Plain-language summary, clickable file links & test status
+    Antigravity-->>User: Plain-language summary, clickable file links & test status
 ```
 
 ---
@@ -136,7 +136,7 @@ antigravity-codex/
     ├── README.md
     ├── assets/logo.svg
     └── skills/codex/
-        ├── SKILL.md                       # /codex Golden Division skill
+        ├── SKILL.md                       # /codex workflow skill definition
         └── scripts/
             ├── run-codex.sh               # macOS / Linux runner (Bash 3.2 safe)
             └── run-codex.ps1              # Windows PowerShell runner

@@ -5,7 +5,7 @@
 <h1 align="center">antigravity-codex</h1>
 
 <p align="center">
-  <strong>Antigravity (Gemini) × OpenAI Codex CLI — 按需召唤双脑协同工作流（<code>/codex</code> 黄金分工版）</strong>
+  <strong>Google Antigravity × OpenAI Codex — 按需触发协同工作流（<code>/codex</code>）</strong>
 </p>
 
 <p align="center">
@@ -13,20 +13,20 @@
 </p>
 
 <p align="center">
-  <img src="./assets/workflow-preview.png" alt="Antigravity x OpenAI Codex 工作流示意图" width="100%" />
+  <img src="./assets/workflow-preview.png" alt="Antigravity x Codex 工作流示意图" width="100%" />
 </p>
 
 ---
 
 ## 为什么选择 `antigravity-codex`？
 
-一套为 **Google Antigravity** 打造的轻量、零依赖原生插件，将 **Gemini** 与 **OpenAI Codex CLI** 的各自长板合二为一——并且**只在你输入 `/codex` 时按需唤醒**：
+一套为 **Google Antigravity** 打造的轻量、零依赖原生插件，将 **Antigravity** 与 **Codex CLI** 的各自长板结合起来——并且**只在你输入 `/codex` 时按需触发**：
 
-- **平时零侵入**：刻意不写全局 `rules/AGENTS.md`，仅通过 `skills/codex` 按需加载。日常问答和小改动依然由 Gemini 原生完成，不污染上下文。
+- **平时零侵入**：刻意不写全局 `rules/AGENTS.md`，仅通过 `skills/codex` 按需加载。日常问答和小改动依然由 Antigravity 原生完成，不污染上下文。
 - **深度原生 UI 门禁**：调用 Antigravity 原生 `implementation_plan.md` 方案卡片（`RequestFeedback: true`），渲染可点击的 **Proceed** 按钮并支持划词批注微调，未拍板前严禁修改一行代码。
-- **黄金分工哲学（`Why & What` vs. `How`）**：
-  - **Gemini（产品军师 + 终审质检）**：负责发散思维探路、输出抓大放小的“人话”任务书、划定边缘防坑清单与红线边界、独立复核 `git diff` 并用人话汇报。
-  - **OpenAI Codex CLI（王牌总工程师）**：拿到清晰目标后自主决定最地道的工程实现，并在工作区现场跑通构建、Lint 与单测闭环，一次交出能跑通的代码。
+- **清晰的职责分工（`Why & What` vs. `How`）**：
+  - **Antigravity（需求分析 + 终审把关）**：负责发散思维探路、输出抓大放小的“人话”任务书、划定边缘防坑清单与红线边界、独立复核 `git diff` 并用人话汇报。
+  - **Codex CLI（工程实现 + 现场自测）**：拿到清晰目标后自主决定最地道的工程实现，并在工作区现场跑通构建、Lint 与单测闭环，一次交出能跑通的代码。
 - **零第三方桥接 · 100% 官方正门**：不装 MCP Server、不用逆向反代、不依赖 tmux，直接通过官方 `codex exec` / `codex exec resume --last` 命令行协作，合规稳定。
 - **大任务更省 Antigravity 额度**：把最耗轮次的多文件编码与编译试错卸载到单次脚本调用中，由你的 Codex 额度分担重体力施工。
 - **全平台支持**：原生提供 **macOS / Linux (`run-codex.sh`)** 与 **Windows (`run-codex.ps1`)** 双端支持。
@@ -38,27 +38,27 @@
 ```mermaid
 sequenceDiagram
     actor User as 用户
-    participant Gemini as Antigravity (Gemini · 管 Why & What)
-    participant Codex as OpenAI Codex CLI (管 How & 现场自测)
+    participant Antigravity as Antigravity (管 Why & What)
+    participant Codex as Codex CLI (管 How & 现场自测)
 
-    Note over User,Gemini: 平时普通消息：Gemini 自己直接执行（无需任何开关）
-    User->>Gemini: 输入 "/codex + 开发/重构/修Bug需求"
+    Note over User,Antigravity: 平时普通消息：Antigravity 自己直接执行（无需任何开关）
+    User->>Antigravity: 输入 "/codex + 开发/重构/修Bug需求"
     opt 需求开放或有多种解法时
-        Gemini-->>User: 用“人话”发散提供 2~3 个思路选项与防坑建议
-        User->>Gemini: 敲定大方向
+        Antigravity-->>User: 用“人话”发散提供 2~3 个思路选项与防坑建议
+        User->>Antigravity: 敲定大方向
     end
-    Gemini->>Gemini: 只读调研代码库，生成抓大放小的 implementation_plan.md
-    Gemini-->>User: 展示带 [Proceed] 按钮的“人话”方案卡片并暂停等待
-    User->>Gemini: 划词批注微调或点击 [Proceed] 拍板确认
-    Gemini->>Codex: 调用 run-codex.sh / run-codex.ps1 execute 放权移交
+    Antigravity->>Antigravity: 只读调研代码库，生成抓大放小的 implementation_plan.md
+    Antigravity-->>User: 展示带 [Proceed] 按钮的“人话”方案卡片并暂停等待
+    User->>Antigravity: 划词批注微调或点击 [Proceed] 拍板确认
+    Antigravity->>Codex: 调用 run-codex.sh / run-codex.ps1 execute 放权移交
     Codex->>Codex: 自主工程设计 + 修改代码 + 现场跑通编译/Lint/单测闭环
-    Codex-->>Gemini: 一次性交付验证通过的代码与技术摘要
-    Gemini->>Gemini: 独立复核 git diff 对齐产品本意与边界红线
+    Codex-->>Antigravity: 一次性交付验证通过的代码与技术摘要
+    Antigravity->>Antigravity: 独立复核 git diff 对齐产品本意与边界红线
     alt 存在需求遗漏或边界偏差
-        Gemini->>Codex: 调用 run-codex resume --last 精准打回微调（最多 3 轮）
-        Codex-->>Gemini: 极速返修完成
+        Antigravity->>Codex: 调用 run-codex resume --last 精准打回微调（最多 3 轮）
+        Codex-->>Antigravity: 极速返修完成
     end
-    Gemini-->>User: 用“人话”汇总实现效果、可点击文件链接与验收情况
+    Antigravity-->>User: 用“人话”汇总实现效果、可点击文件链接与验收情况
 ```
 
 ---
@@ -136,7 +136,7 @@ antigravity-codex/
     ├── README.md
     ├── assets/logo.svg
     └── skills/codex/
-        ├── SKILL.md                       # /codex 黄金分工技能定义
+        ├── SKILL.md                       # /codex 协同技能定义
         └── scripts/
             ├── run-codex.sh               # macOS / Linux 执行器（兼容 Bash 3.2）
             └── run-codex.ps1              # Windows PowerShell 执行器

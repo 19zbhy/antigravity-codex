@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-  Windows PowerShell runner for the Antigravity (Gemini) x OpenAI Codex workflow.
+  Windows PowerShell runner for the Google Antigravity x OpenAI Codex workflow.
 .EXAMPLE
   pwsh -NoProfile -File run-codex.ps1 execute C:\path\to\workspace C:\path\to\implementation_plan.md C:\path\to\codex_last_message.md
   pwsh -NoProfile -File run-codex.ps1 resume  C:\path\to\workspace C:\path\to\codex_fix_instructions.md C:\path\to\codex_last_message.md

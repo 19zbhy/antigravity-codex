@@ -1,7 +1,7 @@
 {
   "name": "codex-collaborator",
-  "displayName": "Gemini × Codex 双脑协同 (/codex)",
-  "description": "黄金分工双脑协同工作流：平时默认由 Gemini 独立工作；输入 /codex 时，由 Gemini 负责发散探路、用人话对齐需求边界与终审把关，由 OpenAI Codex CLI 负责自主工程实现与现场自测闭环。",
+  "displayName": "Antigravity × Codex 协同 (/codex)",
+  "description": "按需触发的 Antigravity × Codex 协同工作流：平时默认由 Antigravity 独立工作；输入 /codex 时，由 Antigravity 负责发散探路、用人话对齐需求边界与终审把关，由 Codex CLI 负责自主工程实现与现场自测闭环。",
   "version": "1.0.0",
   "logo": "assets/logo.svg",
   "suggestedPrompts": [

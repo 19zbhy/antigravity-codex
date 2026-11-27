@@ -1,11 +1,11 @@
-# Antigravity (Gemini) × OpenAI Codex 双脑协同工作流：一键部署指南（`黄金分工 · /codex 按需召唤版`）
+# Google Antigravity × OpenAI Codex 协同工作流：一键部署指南（`/codex` 按需触发）
 
 > [!TIP]
-> **给使用者的最简用法（Agent-Native 一键安装）**：直接将本文档拖入（或全选复制粘贴到）你的 **Antigravity** 对话框中，发送一句：**「请严格按照这份文档，帮我在本机自动部署并验证这套 `/codex` 双脑协同插件」**，Gemini 就会自动完成环境检查、安装依赖、写入全局插件与校验全流程。
+> **给使用者的最简用法（Agent-Native 一键安装）**：直接将本文档拖入（或全选复制粘贴到）你的 **Antigravity** 对话框中，发送一句：**「请严格按照这份文档，帮我在本机自动部署并验证这套 `/codex` 协同插件」**，Antigravity 就会自动完成环境检查、安装依赖、写入全局插件与校验全流程。
 
 ---
 
-## 一、 设计理念：为什么叫「黄金分工」？
+## 一、 设计理念与职责分工
 
 本方案基于 Antigravity 原生插件与斜杠技能机制（**`/codex` 按需触发 + 终端异步脚本**），无需去菜单翻找开关，也不依赖任何第三方桥接库，核心是**让两个模型各自只做最擅长的事**：
 
@@ -21,7 +21,7 @@
 
 ---
 
-## 二、 给 Antigravity (Gemini) 的自动部署执行指令
+## 二、 给 Antigravity 的自动部署执行指令
 
 > [!IMPORTANT]
 > **以下章节为写给执行部署的 Antigravity Agent 的标准作业程序（SOP）**。当你收到用户发来的本文档时，请直接由你本人按以下 5 个步骤在本机完成安装与配置（macOS / Linux 使用 `run-codex.sh`；若检测到 Windows 环境，请将路径与脚本等价适配为仓库中的 PowerShell 版本 `run-codex.ps1`）。
@@ -54,8 +54,8 @@
 ```json
 {
   "name": "codex-collaborator",
-  "displayName": "Gemini × Codex 双脑协同 (/codex)",
-  "description": "黄金分工双脑协同工作流：平时默认由 Gemini 独立工作；输入 /codex 时，由 Gemini 负责发散探路、用人话对齐需求边界与终审把关，由 OpenAI Codex CLI 负责自主工程实现与现场自测闭环。",
+  "displayName": "Antigravity × Codex 协同 (/codex)",
+  "description": "按需触发的 Antigravity × Codex 协同工作流：平时默认由 Antigravity 独立工作；输入 /codex 时，由 Antigravity 负责发散探路、用人话对齐需求边界与终审把关，由 Codex CLI 负责自主工程实现与现场自测闭环。",
   "version": "1.0.0",
   "logo": "assets/logo.svg",
   "suggestedPrompts": [
@@ -90,10 +90,10 @@
 #### 3. `<USER_HOME>/.gemini/config/plugins/codex-collaborator/README.md`
 
 ```markdown
-# Gemini × Codex 双脑协同插件 (`黄金分工 · /codex 按需召唤版`)
+# Antigravity × Codex 协同插件 (`/codex` 按需触发)
 
-- **平时默认状态**：无需任何开关，默认由 **Antigravity (Gemini)** 自己直接完成问答与编码。
-- **召唤双脑协同**：输入 **`/codex 你的需求`** 发送，启动 **「产品军师 Gemini（管 What & Why + 说人话）× 王牌总工 Codex（管 How + 极速工程自测）」** 的黄金配合。
+- **平时默认状态**：无需任何开关，默认由 **Antigravity** 自己直接完成问答与编码。
+- **按需协同**：输入 **`/codex 你的需求`** 发送，启动 **Antigravity（管 Why & What + 终审把关）× Codex CLI（管 How + 现场自测）** 的完整闭环。
 ```
 
 ---
@@ -109,10 +109,10 @@
 ---
 name: codex
 description: >-
-  仅当用户输入 /codex 斜杠命令，或在对话中明确要求“交给 Codex / 开启双脑协同”时激活（平时普通编码请求请勿自动激活，由 Gemini 直接完成）。激活后采用黄金分工模式：由 Gemini 负责发散思维探路、用人话对齐目标与边界并做独立终审；由 OpenAI Codex CLI 负责自主工程实现与现场自测闭环。
+  仅当用户输入 /codex 斜杠命令，或在对话中明确要求“交给 Codex / 开启协同”时激活（平时普通编码请求请勿自动激活，由 Antigravity 直接完成）。激活后由 Antigravity 负责发散思维探路、用人话对齐目标与边界并做独立终审；由 Codex CLI 负责自主工程实现与现场自测闭环。
 ---
 
-# Gemini × Codex 双脑协同技能 (`黄金分工版`)
+# Antigravity × Codex 协同技能 (`/codex`)
 
 > **触发边界**：仅在用户通过 `/codex` 显式召唤、或明确口头指定交给 Codex 时启用。一旦启用，请严格遵循 **「Gemini 管 Why & What（产品发散、人话沟通、架构边界、终审把关），Codex 管 How（地道工程设计、极速编码、现场自测闭环）」** 的分工原则，切勿在未获用户允许时由 Gemini 自己改业务源码。
 
