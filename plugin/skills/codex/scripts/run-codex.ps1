@@ -16,7 +16,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true, Position = 0)]
-  [ValidateSet("list-options", "sync-options", "list-projects", "init-shared", "list-sessions", "execute", "review", "resume", "fork")]
+  [ValidateSet("list-options", "sync-options", "list-projects", "init-shared", "list-sessions", "show-session", "execute", "review", "resume", "fork")]
   [string]$Mode,
 
   [Parameter(Mandatory = $false, Position = 1)]
@@ -43,6 +43,9 @@ param(
 
   [Parameter(Mandatory = $false)]
   [int]$Limit = 10,
+
+  [Parameter(Mandatory = $false)]
+  [int]$Turns = 10,
 
   [switch]$ExcludeState,
   [switch]$Worktree,
@@ -372,6 +375,71 @@ else:
     exit 127
   }
   exit 0
+}
+
+if ($Mode -eq "show-session") {
+  $targetSid = if (-not [string]::IsNullOrWhiteSpace($Session)) { $Session } else { $WorkspaceDir }
+  if ([string]::IsNullOrWhiteSpace($targetSid)) {
+    Write-Error "ERROR: show-session requires a session ID."
+    exit 2
+  }
+  if ($Turns -lt 1) {
+    Write-Error "ERROR: -Turns must be a positive integer."
+    exit 2
+  }
+  $stateDb = Join-Path $codexDir "state_5.sqlite"
+  if (-not (Test-Path -LiteralPath $stateDb)) {
+    Write-Error "ERROR: Codex session database not found at: $stateDb"
+    exit 2
+  }
+  $pyCmd = Get-Command python -ErrorAction SilentlyContinue
+  if (-not $pyCmd) { $pyCmd = Get-Command python3 -ErrorAction SilentlyContinue }
+  if (-not $pyCmd) {
+    Write-Error "ERROR: python/python3 is required for show-session."
+    exit 127
+  }
+  $pyCode = @'
+import json, os, sqlite3, sys
+db_path, sid, max_turns = sys.argv[1], sys.argv[2], int(sys.argv[3])
+conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+row = conn.execute("SELECT rollout_path, cwd, COALESCE(title, ''), COALESCE(model, '') FROM threads WHERE id = ?", (sid,)).fetchone()
+conn.close()
+if not row:
+    sys.stderr.write(f"ERROR: Session ID not found in state_5.sqlite: {sid}\n")
+    sys.exit(2)
+rollout_path, cwd, title, model = row
+print(f"=== Codex Session Context: {sid} ===")
+print(f"Workspace: {cwd}")
+if title: print(f"Title: {title}")
+if model: print(f"Model: {model}")
+if not rollout_path or not os.path.isfile(rollout_path):
+    print("(Rollout transcript file not found on disk)")
+    sys.exit(0)
+SKIP = ("# AGENTS.md instructions for ", "<environment_context>", "<INSTRUCTIONS>", "<permissions instructions>", "<app-context>", "<collaboration_mode>")
+msgs = []
+with open(rollout_path, "r", encoding="utf-8", errors="replace") as f:
+    for raw in f:
+        line = raw.strip()
+        if not line.startswith("{"): continue
+        try: obj = json.loads(line)
+        except Exception: continue
+        if obj.get("type") != "response_item": continue
+        p = obj.get("payload") or {}
+        if p.get("type") != "message": continue
+        role = p.get("role")
+        if role not in ("user", "assistant"): continue
+        parts = [item.get("text", "").strip() for item in (p.get("content") or []) if isinstance(item, dict) and item.get("type") in ("input_text", "output_text", "text") and item.get("text", "").strip()]
+        text = "\n".join(parts).strip()
+        if not text or (role == "user" and any(text.startswith(sp) for sp in SKIP)): continue
+        if len(text) > 1200: text = text[:1200] + "... [truncated]"
+        msgs.append((role, text))
+selected = msgs[-max_turns:]
+print(f"Showing last {len(selected)} of {len(msgs)} message(s):\n")
+for role, text in selected:
+    print(f"[{role.upper()}] {text}\n---")
+'@
+  & $pyCmd.Source -c $pyCode $stateDb $targetSid $Turns
+  exit $LASTEXITCODE
 }
 
 if ([string]::IsNullOrWhiteSpace($Model) -and $env:CODEX_MODEL) { $Model = $env:CODEX_MODEL }

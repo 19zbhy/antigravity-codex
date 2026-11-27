@@ -27,7 +27,9 @@ description: >-
      2. 运行 `run-codex.sh list-sessions "<project_path>" --limit 8` 获取该项目在 Codex 中的最近活跃对话（已自动过滤内部 `codex-auto-review` 噪音）。
    - 紧接着调用 `ask_question` 弹出 1 个极简单选：
      - `(Recommended) 在该项目中开启全新对话任务（自动读取共享记忆与源码）`
-     - 将查到的最近 Codex 老对话逐条列出（格式：`继续老会话：<标题> [<时间>]`）；用户选某条老会话时，Phase 3 默认使用 **`resume --session <id>`** 原位续聊（切回 Codex App 可直接在该对话中看到新增回合；仅当用户明确要求“分叉 / 不要改原对话”时才使用 `fork --session <id>`）。
+     - 将查到的最近 Codex 老对话逐条列出（格式：`继续老会话：<标题> [<时间>]`）；用户选某条老会话时：
+       1. **先让 Antigravity 真正承接上下文**：立刻运行 `run-codex.sh show-session <session_id> --turns 10` 只读提取该条 Codex 老对话最近 10 条纯净用户/助手对话（自动过滤系统提示与冗长工具日志），让 Antigravity 在 Phase 1 规划前完整了解之前聊过的内容；
+       2. **Phase 3 默认使用 `resume --session <id>` 原位续聊**（切回 Codex App 可直接在该对话中看到新增回合；仅当用户明确要求“分叉 / 不要改原对话”时才使用 `fork --session <id>`）。
 3. 记住用户的选择（选“沿用本机默认配置”的项在 Phase 3 中不传覆盖参数，直接沿用 `~/.codex/config.toml`）。每次 `run-codex.sh` 执行后会自动静默刷新下方快照。
 
 <!-- CODEX_LIVE_OPTIONS_START -->

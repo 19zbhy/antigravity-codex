@@ -338,19 +338,26 @@ assert_contains "session-context hook prints shared state" "Shared Workspace Sta
 # list-sessions against a read-only SQLite fixture
 if command -v python3 >/dev/null 2>&1; then
   SHARED_WS_REAL="$(cd "$SHARED_WS" && pwd -P)"
-  python3 - "${CODEX_HOME_1}/state_5.sqlite" "$SHARED_WS_REAL" <<'PY'
+  ROLLOUT_FIXTURE="${TMP_ROOT}/rollout-fixture.jsonl"
+  cat > "$ROLLOUT_FIXTURE" <<'EOF'
+{"type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"SECRET_SYSTEM_PROMPT"}]}}
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /tmp"}]}}
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Please optimize the widget refresh interval"}]}}
+{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Updated refresh interval to 5 minutes."}]}}
+EOF
+  python3 - "${CODEX_HOME_1}/state_5.sqlite" "$SHARED_WS_REAL" "$ROLLOUT_FIXTURE" <<'PY'
 import sqlite3, sys
-db, cwd = sys.argv[1], sys.argv[2]
+db, cwd, rollout = sys.argv[1], sys.argv[2], sys.argv[3]
 conn = sqlite3.connect(db)
 conn.execute("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT, position INTEGER)")
 conn.execute("CREATE TABLE project_roots (project_id TEXT, position INTEGER, path TEXT)")
 conn.execute("INSERT INTO projects VALUES ('proj-1', 'Desktop Widgets', 0)")
 conn.execute("INSERT INTO project_roots VALUES ('proj-1', 0, ?)", (cwd,))
-conn.execute("CREATE TABLE threads (id TEXT PRIMARY KEY, cwd TEXT, updated_at INTEGER, archived INTEGER, model TEXT, title TEXT, preview TEXT)")
-conn.execute("INSERT INTO threads VALUES ('sess-active-1', ?, 1700000200, 0, 'gpt-6.2-sol', 'Implement auth', '')", (cwd,))
-conn.execute("INSERT INTO threads VALUES ('sess-guard-4', ?, 1700000250, 0, 'codex-auto-review', 'Guardian review', '')", (cwd,))
-conn.execute("INSERT INTO threads VALUES ('sess-archived-2', ?, 1700000300, 1, 'gpt-6.2-sol', 'Old archived', '')", (cwd,))
-conn.execute("INSERT INTO threads VALUES ('sess-other-3', '/other/dir', 1700000400, 0, 'gpt-6.2-sol', 'Other project', '')")
+conn.execute("CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT, cwd TEXT, updated_at INTEGER, archived INTEGER, model TEXT, title TEXT, preview TEXT)")
+conn.execute("INSERT INTO threads VALUES ('sess-active-1', ?, ?, 1700000200, 0, 'gpt-6.2-sol', 'Implement auth', '')", (rollout, cwd))
+conn.execute("INSERT INTO threads VALUES ('sess-guard-4', '', ?, 1700000250, 0, 'codex-auto-review', 'Guardian review', '')", (cwd,))
+conn.execute("INSERT INTO threads VALUES ('sess-archived-2', '', ?, 1700000300, 1, 'gpt-6.2-sol', 'Old archived', '')", (cwd,))
+conn.execute("INSERT INTO threads VALUES ('sess-other-3', '', '/other/dir', 1700000400, 0, 'gpt-6.2-sol', 'Other project', '')")
 conn.commit()
 conn.close()
 PY
@@ -363,6 +370,11 @@ PY
   assert_not_contains "list-sessions excludes codex-auto-review noise" "sess-guard-4" "$LS_OUT"
   assert_not_contains "list-sessions excludes archived thread" "sess-archived-2" "$LS_OUT"
   assert_not_contains "list-sessions excludes other workspace thread" "sess-other-3" "$LS_OUT"
+  SHOW_OUT="$(CODEX_HOME="$CODEX_HOME_1" "$RUNNER" show-session "sess-active-1" --turns 6)"
+  assert_contains "show-session includes real user message" "Please optimize the widget refresh interval" "$SHOW_OUT"
+  assert_contains "show-session includes real assistant reply" "Updated refresh interval to 5 minutes." "$SHOW_OUT"
+  assert_not_contains "show-session strips developer prompt" "SECRET_SYSTEM_PROMPT" "$SHOW_OUT"
+  assert_not_contains "show-session strips AGENTS.md boilerplate" "AGENTS.md instructions" "$SHOW_OUT"
 fi
 
 # fork fails closed without session ID, and passes fork <id> - when provided

@@ -18,6 +18,7 @@ Usage:
   run-codex.sh list-projects
   run-codex.sh init-shared   <workspace_dir> [--exclude-state]
   run-codex.sh list-sessions <workspace_dir> [--limit <N>]
+  run-codex.sh show-session  <session_id> [--turns <N>]
   run-codex.sh execute <workspace_dir> <plan_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--worktree] [--no-isolate] [--verbose]
   run-codex.sh review  <workspace_dir> <spec_file> [output_last_message_file] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate] [--verbose]
   run-codex.sh resume  <workspace_dir> <fix_file>  [output_last_message_file] [--session <id> | --last] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate] [--verbose]
@@ -511,6 +512,103 @@ PY
     echo "ERROR: Neither python3 nor sqlite3 is available to read $STATE_DB" >&2
     exit 127
   fi
+  exit 0
+fi
+
+if [[ "$MODE" == "show-session" ]]; then
+  [[ $# -ge 1 ]] || usage
+  TARGET_SID="$1"
+  shift
+  TURNS="10"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --turns)
+        [[ $# -ge 2 ]] || { echo "ERROR: --turns requires a positive integer" >&2; exit 2; }
+        TURNS="$2"
+        shift 2
+        ;;
+      *) echo "ERROR: Unknown option '$1' for show-session" >&2; usage ;;
+    esac
+  done
+  if ! [[ "$TURNS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ERROR: --turns must be a positive integer, got '$TURNS'" >&2
+    exit 2
+  fi
+  STATE_DB="${CODEX_DIR}/state_5.sqlite"
+  if [[ ! -f "$STATE_DB" ]]; then
+    echo "ERROR: Codex session database not found at: $STATE_DB" >&2
+    exit 2
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "ERROR: python3 is required for show-session." >&2
+    exit 127
+  fi
+  python3 - "$STATE_DB" "$TARGET_SID" "$TURNS" <<'PY'
+import json, os, sqlite3, sys
+db_path, sid, max_turns = sys.argv[1], sys.argv[2], int(sys.argv[3])
+conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+row = conn.execute("SELECT rollout_path, cwd, COALESCE(title, ''), COALESCE(model, '') FROM threads WHERE id = ?", (sid,)).fetchone()
+conn.close()
+if not row:
+    sys.stderr.write(f"ERROR: Session ID not found in state_5.sqlite: {sid}\n")
+    sys.exit(2)
+rollout_path, cwd, title, model = row
+print(f"=== Codex Session Context: {sid} ===")
+print(f"Workspace: {cwd}")
+if title:
+    print(f"Title: {title}")
+if model:
+    print(f"Model: {model}")
+if not rollout_path or not os.path.isfile(rollout_path):
+    print("(Rollout transcript file not found on disk)")
+    sys.exit(0)
+SKIP_PREFIXES = (
+    "# AGENTS.md instructions for ",
+    "<environment_context>",
+    "<INSTRUCTIONS>",
+    "<permissions instructions>",
+    "<app-context>",
+    "<collaboration_mode>",
+)
+msgs = []
+with open(rollout_path, "r", encoding="utf-8", errors="replace") as f:
+    for raw in f:
+        line = raw.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            obj = json.loads(line)
+        except Exception:
+            continue
+        if obj.get("type") != "response_item":
+            continue
+        payload = obj.get("payload") or {}
+        if payload.get("type") != "message":
+            continue
+        role = payload.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        parts = []
+        for item in (payload.get("content") or []):
+            if isinstance(item, dict) and item.get("type") in ("input_text", "output_text", "text"):
+                t = (item.get("text") or "").strip()
+                if t:
+                    parts.append(t)
+        text = "\n".join(parts).strip()
+        if not text:
+            continue
+        if role == "user" and any(text.startswith(sp) for sp in SKIP_PREFIXES):
+            continue
+        if len(text) > 1200:
+            text = text[:1200] + "... [truncated]"
+        msgs.append((role, text))
+selected = msgs[-max_turns:]
+print(f"Showing last {len(selected)} of {len(msgs)} message(s):")
+print("")
+for role, text in selected:
+    print(f"[{role.upper()}] {text}")
+    print("---")
+PY
   exit 0
 fi
 
