@@ -10,17 +10,26 @@ description: >-
 
 ---
 
-## Phase 0：1 轮秒弹项目与 Codex 模型选择
+## Phase 0：1 轮秒弹项目与 Codex 运行档位选择
 
-1. **1 轮秒弹精简选择卡片（若已在第 1 轮通过 `rules/AGENTS.md` 预热弹出，直接承接用户选择，勿重复弹卡片）**：
+1. **1 轮秒弹选择卡片（若已在第 1 轮通过 `rules/AGENTS.md` 预热弹出，直接承接用户选择，勿重复弹卡片）**：
    - 直接读取下方由安装脚本与 `run-codex.sh` 自动同步好的本机实时快照（**不要在弹卡片前额外跑终端或读 `config.toml`**；仅当下方快照为 `- (not synced yet)` 时，才先跑一次 `run-codex.sh sync-options`）。
-   - 若用户尚未选择且未在 `/codex` 消息中显式指定全部参数，立即调用 `ask_question` 弹出精简 2 题单选（减少输出耗时）：
+   - **选项文案必须跟随用户语言**：用户使用中文时，禁止在选项里出现 `medium`、`xhigh`、`priority`、`flex` 等内部英文枚举名，统一使用自然中文展示，Phase 3 传参时再映射回 CLI 参数（`--model <slug>`、`--effort <low|medium|high|xhigh|max|ultra>`、`--tier <priority|default|flex>`）：
+     - 思考深度映射：`low`→`低（轻量快答）`、`medium`→`中（日常均衡）`、`high`→`高（深度推理）`、`xhigh`→`超高（复杂难题）`、`max`→`极高（最大思考）`、`ultra`→`极限（深度攻坚）`
+     - 响应速度映射：`priority`→`极速模式（⚡ 优先响应，更耗额度）`、`default`→`标准速度（常规均衡）`、`flex`→`省流模式（弹性排队，更省额度）`
+   - 若用户尚未选择且未在 `/codex` 消息中显式指定全部参数，立即调用 `ask_question` 一次性弹出以下 4 题单选：
      - **问题 1（进入哪个 Codex 项目）**（仅当下方快照存在 `- projects:` 时展示）：
        - `(Recommended) 不进入 Codex 项目（使用当前工作区）`
        - 快照中 `- projects:` 的全部 Codex 项目（格式：`项目名（路径）`）。
-     - **问题 2（Codex 模型与档位）**：
-       - `(Recommended) 沿用本机默认（<default_model> · <default_effort> · <default_tier>）`
-       - 快照中 `- models:` 的前 5 个最新模型（若用户要调整 `effort`、`tier` 或使用其他模型，可点「其他」或直接在消息中说明，例如 `--effort high --tier flex`）。
+     - **问题 2（选择 Codex 模型）**：
+       - `(Recommended) 沿用本机默认（当前：<default_model 的展示名>）`
+       - 快照中 `- models:` 的前 6 个最新模型（直接展示友好名称如 `GPT-6.2-Sol`）。
+     - **问题 3（选择思考深度）**：
+       - `(Recommended) 沿用本机默认（当前：<default_effort 对应的中文名>）`
+       - 按 `低 → 中 → 高 → 超高 → 极高 → 极限` 顺序列出快照 `- efforts:` 中包含的档位。
+     - **问题 4（选择响应速度）**：
+       - `(Recommended) 沿用本机默认（当前：<default_tier 对应的中文名>）`
+       - `极速模式（⚡ 优先响应，更耗额度）`、`标准速度（常规均衡）`、`省流模式（弹性排队，更省额度）`。
 2. **若用户选择了某个 Codex 项目（自动进入双端共享 + 可选接力老会话）**：
    - 将该项目路径作为本次任务的 `<workspace_dir>`，并立刻执行两步轻量准备：
      1. 若该项目尚未存在 `.agents/state.md`，自动运行 `run-codex.sh init-shared "<project_path>" --exclude-state` **无感开启双端共享状态**；
