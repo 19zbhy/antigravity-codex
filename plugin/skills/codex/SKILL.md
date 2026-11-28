@@ -37,7 +37,8 @@ description: >-
        - `(Recommended) 新建对话`
        - 逐条列出缓存的 `<对话名> · <时间>`（例如 `重构登录模块 · 11-27 21:38`，**不要**每条都重复写“继续老会话：”）
        - `刷新对话列表`（仅当用户点此项，或快照中无该项目缓存时，才运行 `run-codex.sh list-sessions "<project_path>" --limit 8` 实时查库并重新弹窗）
-     - 若读取 `.agents/state.md` 发现不存在，顺手运行一次 `run-codex.sh init-shared "<project_path>" --exclude-state` 无感开启双端共享状态。
+     - **不默认自动 `init-shared`**：仅当项目已存在 `.agents/state.md` 时顺手读取；不要在普通任务里擅自运行 `init-shared` 创建 `.agents/` 目录（仅在用户明确要求「开启双端共享」时再执行）。
+     - **选「使用当前工作区」且用户未提及接力老对话时**：直接进入 Phase 1，**不要**额外调用 `list-sessions` 浪费轮次。
    - 当用户选中某条老会话时：
        1. **先让 Antigravity 真正承接上下文**：立刻运行 `run-codex.sh show-session <session_id> --turns 10` 只读提取该条 Codex 老对话最近 10 条纯净用户/助手对话（自动过滤系统提示与冗长工具日志），让 Antigravity 在 Phase 1 规划前完整了解之前聊过的内容；
        2. **Phase 3 默认使用 `resume --session <id>` 原位续聊**（切回 Codex App 可直接在该对话中看到新增回合；仅当用户明确要求“分叉 / 不要改原对话”时才使用 `fork --session <id>`）。
@@ -54,9 +55,9 @@ description: >-
 
 ## Phase 1：任务分级、快速探路与“人话”任务书（Antigravity）
 
-0. **任务分级：轻量操作直达快车道（Fast Path）vs 正式方案门禁（Full Plan Path）**：
-   - **快车道（1 轮直达，免写任何任务文件、免等 `Proceed`）**：若用户需求是**目标单一明确、无不可逆破坏风险**的轻量操作或小改动——例如：启停/重启服务或进程、运行构建/测试/脚本、查询运行状态或日志、明确的一两行微调、或只读代码审查（`review`）——**禁止做多轮冗长摸排、也不要先 `write_file` 写临时文件**！直接用 `--prompt "<简洁任务指令>"`（Windows 为 `-Prompt`）在**本轮直接调用 `run-codex.sh`** 交给 Codex 执行（例如：`run-codex.sh resume "/path/to/ws" --session <id> --prompt "重启本地开发服务并确认端口健康"`）。
-   - **正式门禁（走下方 Phase 1 → Phase 2）**：涉及跨文件功能开发、架构重构、多方案取舍、或存在删除/覆盖/配置修改等风险的任务，先并行只读摸排（**尽量合并在 1 轮内完成**），再出 `implementation_plan.md` 等待用户点击 **Proceed**。
+0. **任务分级：轻量直达快车道（Fast Path）vs 正式方案门禁（Full Plan Path）**：
+   - **快车道（1 轮直达，免写任务书、免等 `Proceed`）**：若用户需求是**目标明确、影响面清晰、无不可逆破坏风险**的轻量操作或单功能小改动——例如：加一个独立开关/按钮/小交互、调样式或改文案、修一个明确的小 Bug、启停/重启服务、运行构建/测试、查日志、或只读代码审查（`review`）——**禁止做多轮冗长摸排，也不要先 `write_file` 写临时文件**！直接用 `--prompt "<简洁、不加戏的任务指令>"`（Windows 为 `-Prompt`）在**本轮直接调用 `run-codex.sh`** 交给 Codex 执行（例如：`run-codex.sh execute "/path/to/ws" --prompt "为番茄钟添加深色模式切换按钮与样式，并补充对应单元测试"`）。
+   - **正式门禁（走下方 Phase 1 → Phase 2）**：仅当涉及**跨模块功能开发、架构重构、多方案权衡、或删除/覆盖/高风险配置改动**（或用户明确要求先看方案）时，先在 **1 轮内并行完成必要只读摸排**，再出极简 `implementation_plan.md` 等待用户点击 **Proceed**。
 
 1. **严禁越权改代码 + 优先感知跨端共享上下文**：
    - 只用只读工具（`read_file`、搜索工具、只读命令）快速摸清相关代码结构、现有约定与可复用模块。
@@ -71,7 +72,7 @@ description: >-
    - 方案顶部必须保留执行标记与选定的 Codex 运行参数（确保下一轮收到用户确认信号时准确透传）：
      `> 执行方式：用户确认后通过 codex 技能调用 run-codex.sh 交由 OpenAI Codex CLI 自主工程实现与现场自测闭环`
      `> Codex 运行配置：model=<选择值或默认> | effort=<选择值或默认> | tier=<选择值或默认>`
-   - **严禁事无巨细堆砌伪代码捆死 Codex**！方案聚焦以下 4 个模块（让用户用人话秒懂，同时给足 Codex 工程发挥空间）：
+   - **严禁堆砌伪代码或擅自“加戏”过度设计**！方案保持短小精悍（常规任务控制在 **15～25 行内**，让用户 5 秒扫完就能拍板，且只写用户真实需要的核心点，不额外塞入未要求的附属特性），聚焦以下 4 个模块：
      1. **目标与体验逻辑（Goal & Behavior）**：用清晰的大白话描述要解决的问题、期望的交互/业务表现与输入输出规则。
      2. **发散防坑与边缘情况（Edge Cases & Guardrails）**：列明异常输入、空状态、并发/状态同步、向后兼容等需要兜底的边界场景。
      3. **架构切入点与作用域红线（Workspace Root & Scope Boundaries）**：指明工作区绝对路径、相关联的现有目录/模块、项目既有的技术栈约定，以及**严禁触碰的文件/目录红线**（具体函数怎么拆、代码怎么组织最优雅，完全交由 Codex 自主设计）。
@@ -122,19 +123,18 @@ description: >-
 
 `run-codex.sh` 执行完毕后，由 Antigravity 进行独立把关：
 
-1. **对齐初心与边界复核**：
-   - 读取 `scratch/codex_last_message.md`（若有），并检查 `git status --short` 与 `git diff`（非 Git 目录则用 `read_file` 查看改动文件）。
-   - 重点站在**产品体验与架构全局观**核查：用户的真实意图满足了吗？列出的边缘情况兜住了吗？有没有越界误改无关文件？
-2. **核验测试结果与精准打回**：
-   - 若 Codex 在现场已跑通全部构建/测试且 Diff 干净，可做轻量抽检确认即可，避免重复跑耗时全量测试拖慢节奏；若 Codex 未跑某项关键验证，由 Antigravity 补跑确认。
+1. **极速边界复核（1 轮搞定）**：
+   - `run-codex.sh` 输出已包含最终摘要与 `git diff --stat`；只需跑一次 `git diff`（非 Git 目录再读变动文件）快速核对是否满足意图、有无越界误改，**不要逐个重复读取无关文件**。
+2. **信任现场自测，不重复空跑**：
+   - 若 Codex 在现场已跑通全部构建/测试且 Diff 干净，**直接进入汇报，不要重复重跑已全绿的测试**；仅当 Diff 有疑点或 Codex 遗漏关键验证时，由 Antigravity 补跑确认。
    - 若发现需求遗漏、逻辑偏差或测试报错，**不要由 Antigravity 自己上手改业务源码**（除非用户主动要求你接手）：将简明问题清单与报错信息写入 `<Artifact Directory Path>/scratch/codex_fix_instructions.md`，通过 `resume` 唤醒同一个 Codex 会话极速返修（透传与 Phase 3 一致的 `--model` / `--effort` / `--tier` 参数，设置 `WaitMsBeforeAsync: 10000`、`NotificationTimeoutSeconds: 240`，最多 3 轮）：
 
 ```bash
 <USER_HOME>/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh resume /absolute/path/to/workspace /absolute/path/to/artifact_dir/scratch/codex_fix_instructions.md /absolute/path/to/artifact_dir/scratch/codex_last_message.md
 ```
 
-3. **单点回写共享状态（仅代码/里程碑改动时）+ 用“人话”向用户交付成果**：
-   - **共享项目状态回写（Single-Writer）**：**仅当本次任务产生了实质代码/配置改动或里程碑推进**，且工作区存在 `.agents/state.md` 时，才由 Antigravity 作为唯一写回口精简更新（控制在 50 行内）；对于纯启停进程、查状态、跑测试等**未改动源码的轻量操作，跳过回写 `.agents/state.md` 和多余的 `git status` 检查**，直接 1 轮向用户汇报结果。若配置了 `basic-memory` MCP 且产生了值得长期保留的架构决策或踩坑记录，按需沉淀写入。
+3. **按需回写共享状态 + 用“人话”直接交付**：
+   - **共享项目状态回写（按需，不额外拖轮次）**：仅当工作区**原本已存在 `.agents/state.md`** 且本次完成了跨模块/里程碑级改动时，才精简更新（控制在 50 行内）；小改动、轻量操作或未开启共享工作区的项目**直接跳过**，立刻向用户汇报结果。
    - 摒弃生硬晦涩的终端日志堆砌，用通俗清晰的语言告诉用户：
      - **做好了什么**：实际实现的效果与使用方式；
      - **动了哪里**：新增/修改的核心文件列表（附可点击的 `file://` 链接）及各自作用；
