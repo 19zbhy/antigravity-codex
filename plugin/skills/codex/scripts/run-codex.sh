@@ -1286,20 +1286,27 @@ release_codex_app_lock() {
   fi
   case "$(uname -s 2>/dev/null || echo unknown)" in
     Darwin)
-      local app_server_procs has_codex_app=0 has_chatgpt_app=0 target_app=""
+      local app_server_procs has_codex_app=0 has_chatgpt_app=0 has_unknown_app=0 target_app="" proc_line=""
       app_server_procs="$(ps -eo args= 2>/dev/null | grep -E '(^|/|")codex("|[[:space:]]|$).*app-server' | grep -v grep || true)"
       if [[ -z "$app_server_procs" ]]; then
         echo "==> [Codex Engineer] No active codex app-server process detected; skipping app quit." >&2
         return 0
       fi
-      if printf '%s\n' "$app_server_procs" | grep -q 'Codex\.app'; then
-        has_codex_app=1
-      fi
-      if printf '%s\n' "$app_server_procs" | grep -q 'ChatGPT\.app'; then
-        has_chatgpt_app=1
-      fi
+      while IFS= read -r proc_line; do
+        [[ -n "$proc_line" ]] || continue
+        if printf '%s\n' "$proc_line" | grep -q 'Codex\.app'; then
+          has_codex_app=1
+        elif printf '%s\n' "$proc_line" | grep -q 'ChatGPT\.app'; then
+          has_chatgpt_app=1
+        else
+          has_unknown_app=1
+        fi
+      done <<< "$app_server_procs"
 
-      if [[ "$has_codex_app" -eq 1 ]] && [[ "$has_chatgpt_app" -eq 1 ]]; then
+      if [[ "$has_unknown_app" -eq 1 ]]; then
+        echo "==> [Codex Engineer] Unattributed codex app-server process detected alongside candidate apps; refusing to guess which holds the lock. Please release the lock manually or use 'fork'." >&2
+        return 0
+      elif [[ "$has_codex_app" -eq 1 ]] && [[ "$has_chatgpt_app" -eq 1 ]]; then
         echo "==> [Codex Engineer] Both Codex.app and ChatGPT.app app-server processes are running; refusing to guess which holds the lock. Please close the active app manually or use 'fork'." >&2
         return 0
       elif [[ "$has_codex_app" -eq 1 ]]; then

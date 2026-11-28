@@ -1017,6 +1017,7 @@ try {
     }
     $hasCodexApp = $false
     $hasChatGptApp = $false
+    $hasUnknownApp = $false
     $appServers = @()
     try {
       $appServers = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
@@ -1027,11 +1028,16 @@ try {
         $probe = if (-not [string]::IsNullOrWhiteSpace($p.ExecutablePath)) { $p.ExecutablePath } else { $p.CommandLine }
         if ($probe -match '[\\/]ChatGPT[\\/]') { $hasChatGptApp = $true }
         elseif ($probe -match '[\\/]Codex[\\/]') { $hasCodexApp = $true }
+        else { $hasUnknownApp = $true }
       }
     } catch {}
 
     if ($appServers.Count -eq 0) {
       [Console]::Error.WriteLine("==> [Codex Engineer] No active codex app-server process detected; skipping app quit.")
+      return
+    }
+    if ($hasUnknownApp) {
+      [Console]::Error.WriteLine("==> [Codex Engineer] Unattributed codex app-server process detected; refusing to guess which holds the lock. Please release the lock manually or use 'fork'.")
       return
     }
     if ($hasCodexApp -and $hasChatGptApp) {

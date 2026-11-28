@@ -657,6 +657,18 @@ EOF
   printf '%s\n%s\n' "/Applications/Codex.app/Contents/Resources/codex app-server" "/Applications/ChatGPT.app/Contents/Resources/codex app-server" > "$PS_OUT_FILE"
   PATH="${STUB_BIN}:${PATH}" CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$SHARED_WS" "$PLAN_FILE" "${TMP_ROOT}/stub_lock4/last.md" --session "sess-stub-4" --quit-app-on-lock >/dev/null 2>&1
   assert_eq "multi-app coexistence invokes osascript zero times" "0" "$(wc -l < "$OSA_LOG" | tr -d ' ')"
+
+  # Case 5: Codex.app + unknown standalone app-server -> refuses to guess
+  : > "$OSA_LOG"
+  printf '%s\n%s\n' "/Applications/Codex.app/Contents/Resources/codex app-server" "/usr/local/bin/codex app-server" > "$PS_OUT_FILE"
+  PATH="${STUB_BIN}:${PATH}" CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$SHARED_WS" "$PLAN_FILE" "${TMP_ROOT}/stub_lock5/last.md" --session "sess-stub-5" --quit-app-on-lock >/dev/null 2>&1
+  assert_eq "Codex.app + unknown app-server invokes osascript zero times" "0" "$(wc -l < "$OSA_LOG" | tr -d ' ')"
+
+  # Case 6: ChatGPT.app + unknown standalone app-server -> refuses to guess
+  : > "$OSA_LOG"
+  printf '%s\n%s\n' '"/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex" app-server' "/usr/local/bin/codex app-server" > "$PS_OUT_FILE"
+  PATH="${STUB_BIN}:${PATH}" CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$SHARED_WS" "$PLAN_FILE" "${TMP_ROOT}/stub_lock6/last.md" --session "sess-stub-6" --quit-app-on-lock >/dev/null 2>&1
+  assert_eq "ChatGPT.app + unknown app-server invokes osascript zero times" "0" "$(wc -l < "$OSA_LOG" | tr -d ' ')"
 fi
 
 echo ""
