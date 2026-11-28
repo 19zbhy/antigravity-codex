@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="./README.md">English</a> | 简体中文
+  <a href="./README.md">English</a> | 简体中文 | <a href="https://19zbhy.github.io/antigravity-codex/">项目官网首页</a>
 </p>
 
 <p align="center">
