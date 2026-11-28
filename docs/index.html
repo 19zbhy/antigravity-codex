@@ -48,7 +48,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      height: 64px;
+      height: 68px;
       gap: 16px;
     }
     .brand {
@@ -56,10 +56,10 @@
       align-items: center;
       gap: 10px;
       font-weight: 700;
-      font-size: 16px;
+      font-size: 16.5px;
       letter-spacing: -0.01em;
     }
-    .brand img { width: 28px; height: 28px; }
+    .brand img { width: 40px; height: 40px; }
     .nav-links {
       display: flex;
       align-items: center;
@@ -93,9 +93,23 @@
 
     /* Hero */
     .hero {
-      padding: 72px 0 56px;
+      padding: 52px 0 56px;
       text-align: center;
     }
+    .hero-logo {
+      width: 96px;
+      height: 96px;
+      margin: 0 auto 20px;
+      border-radius: 26px;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      box-shadow: 0 12px 30px rgba(30, 39, 34, 0.09);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px;
+    }
+    .hero-logo img { width: 100%; height: 100%; display: block; }
     .eyebrow {
       display: inline-flex;
       align-items: center;
@@ -343,6 +357,9 @@
   <main>
     <section class="hero">
       <div class="container">
+        <div class="hero-logo">
+          <img src="./assets/logo.svg" alt="antigravity-codex logo" />
+        </div>
         <div class="eyebrow">
           <span class="dot"></span>
           <span data-zh="Google Antigravity × OpenAI Codex" data-en="Google Antigravity × OpenAI Codex">Google Antigravity × OpenAI Codex</span>

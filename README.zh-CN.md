@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/logo.svg" width="84" height="84" alt="antigravity-codex logo" />
+  <img src="./assets/logo.svg" width="112" height="112" alt="antigravity-codex logo" />
 </p>
 
 <h1 align="center">antigravity-codex</h1>
