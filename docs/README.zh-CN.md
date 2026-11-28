@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <img src="../assets/workflow-preview.png" alt="Antigravity x Codex 工作流示意图" width="100%" />
+  <img src="../assets/workflow-preview-zh.png" alt="Antigravity x Codex 工作流示意图" width="100%" />
 </p>
 
 > [!NOTE]
@@ -210,7 +210,8 @@ antigravity-codex/
 ├── install.ps1                                # Windows PowerShell 安装器（支持 -DryRun / -Uninstall）
 ├── assets/
 │   ├── logo.svg                               # 插件图标
-│   ├── workflow-preview.png                   # 工作流视觉横幅
+│   ├── workflow-preview-zh.png                # 中文工作流全景图
+│   ├── workflow-preview-en.png                # 英文工作流全景图
 │   └── codex-picker-preview.png               # /codex 1 轮选单效果预览图
 ├── docs/
 │   ├── index.html                             # GitHub Pages 官网首页

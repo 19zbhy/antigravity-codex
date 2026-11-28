@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <img src="./assets/workflow-preview.png" alt="Antigravity x Codex Workflow" width="100%" />
+  <img src="./assets/workflow-preview-en.png" alt="Antigravity x Codex Workflow" width="100%" />
 </p>
 
 > [!NOTE]
@@ -210,7 +210,8 @@ antigravity-codex/
 ├── install.ps1                                # Windows PowerShell installer (-DryRun / -Uninstall)
 ├── assets/
 │   ├── logo.svg
-│   ├── workflow-preview.png                   # Workflow banner
+│   ├── workflow-preview-en.png                # English workflow banner
+│   ├── workflow-preview-zh.png                # Chinese workflow banner
 │   └── codex-picker-preview.png               # 1-turn picker UI preview
 ├── docs/
 │   ├── index.html                             # GitHub Pages landing page

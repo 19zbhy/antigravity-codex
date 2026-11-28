@@ -381,7 +381,10 @@
           <a class="cta-btn ghost" href="https://github.com/19zbhy/antigravity-codex" target="_blank" rel="noopener" data-zh="查看 GitHub 源码" data-en="View on GitHub">查看 GitHub 源码</a>
         </div>
         <div class="hero-frame">
-          <img src="./assets/workflow-preview.png" alt="Antigravity x Codex Workflow" />
+          <img src="./assets/workflow-preview-zh.png"
+               data-zh-src="./assets/workflow-preview-zh.png"
+               data-en-src="./assets/workflow-preview-en.png"
+               alt="Antigravity x Codex Workflow" />
         </div>
       </div>
     </section>
@@ -625,6 +628,9 @@ pwsh -NoProfile -File "$HOME\.gemini\config\plugins\codex-collaborator\skills\co
       langBtn.textContent = lang === "zh" ? "EN" : "中文";
       document.querySelectorAll("[data-zh][data-en]").forEach((el) => {
         el.textContent = el.getAttribute("data-" + lang);
+      });
+      document.querySelectorAll("[data-zh-src][data-en-src]").forEach((el) => {
+        el.src = el.getAttribute("data-" + lang + "-src");
       });
     });
 
