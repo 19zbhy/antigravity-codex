@@ -56,7 +56,7 @@
   <img src="./assets/codex-picker-preview.png" alt="/codex 1 轮秒弹点选卡片效果预览" width="96%" />
 </p>
 
-### 与 Codex 桌面端无缝接力（核心差异化）
+### 与 Codex 桌面端无缝接力
 - **原生读取 Codex 项目与侧边栏真实对话名**：只读查询 `~/.codex/state_5.sqlite`（内置 WAL 锁 `immutable=1` 降级保护），自动把每个项目最近 6 条活跃对话预同步进 `SKILL.md`，选完项目后第 2 张「选择对话」卡片 1 轮直出。
 - **真正承接老对话上下文（`show-session` + `resume`）**：自动提取选中老对话的纯净历史给 Antigravity 了解背景，执行时默认原位 `resume --session <id>` 续写回 Codex 原对话。
 - **桌面端写锁安全征询**：遇到 Codex 桌面端占用线程锁（`already has an active writer`）时绝不擅自关软件，先弹窗征求你同意（同意则 `--quit-app-on-lock` 优雅关闭并原位续聊；不同意则无损 `fork`）。
