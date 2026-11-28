@@ -35,7 +35,7 @@ description: >-
    - **优先直接使用下方快照里的 `- project_sessions:` 预同步列表（零额外命令轮次，省去一次 `list-sessions` 往返！）**：
      - 若下方 `- project_sessions:` 中已有该项目的最近对话，**不要先跑 `list-sessions`**，直接在本轮并行读取 `<project_path>/.agents/state.md`（若存在）并调用 `ask_question` 弹出单选卡片（标题：`选择「<项目名>」中的对话`；选项简洁无重复前缀、无冗余括号）：
        - `(Recommended) 新建对话`
-       - 逐条列出缓存的 `<对话名> · <时间>`（例如 `iKuuu · 11-27 21:38`，**不要**每条都重复写“继续老会话：”）
+       - 逐条列出缓存的 `<对话名> · <时间>`（例如 `重构登录模块 · 11-27 21:38`，**不要**每条都重复写“继续老会话：”）
        - `刷新对话列表`（仅当用户点此项，或快照中无该项目缓存时，才运行 `run-codex.sh list-sessions "<project_path>" --limit 8` 实时查库并重新弹窗）
      - 若读取 `.agents/state.md` 发现不存在，顺手运行一次 `run-codex.sh init-shared "<project_path>" --exclude-state` 无感开启双端共享状态。
    - 当用户选中某条老会话时：
@@ -55,7 +55,7 @@ description: >-
 ## Phase 1：任务分级、快速探路与“人话”任务书（Antigravity）
 
 0. **任务分级：轻量操作直达快车道（Fast Path）vs 正式方案门禁（Full Plan Path）**：
-   - **快车道（1 轮直达，免写任何任务文件、免等 `Proceed`）**：若用户需求是**目标单一明确、无不可逆破坏风险**的轻量操作或小改动——例如：启停/重启服务或小组件、运行构建/测试/脚本、查询运行状态或日志、明确的一两行微调、或只读代码审查（`review`）——**禁止做多轮冗长摸排、也不要先 `write_file` 写临时文件**！直接用 `--prompt "<简洁任务指令>"`（Windows 为 `-Prompt`）在**本轮直接调用 `run-codex.sh`** 交给 Codex 执行（例如：`run-codex.sh resume "/path/to/ws" --session <id> --prompt "启动全部 5 个小组件并确认运行状态"`）。
+   - **快车道（1 轮直达，免写任何任务文件、免等 `Proceed`）**：若用户需求是**目标单一明确、无不可逆破坏风险**的轻量操作或小改动——例如：启停/重启服务或进程、运行构建/测试/脚本、查询运行状态或日志、明确的一两行微调、或只读代码审查（`review`）——**禁止做多轮冗长摸排、也不要先 `write_file` 写临时文件**！直接用 `--prompt "<简洁任务指令>"`（Windows 为 `-Prompt`）在**本轮直接调用 `run-codex.sh`** 交给 Codex 执行（例如：`run-codex.sh resume "/path/to/ws" --session <id> --prompt "重启本地开发服务并确认端口健康"`）。
    - **正式门禁（走下方 Phase 1 → Phase 2）**：涉及跨文件功能开发、架构重构、多方案取舍、或存在删除/覆盖/配置修改等风险的任务，先并行只读摸排（**尽量合并在 1 轮内完成**），再出 `implementation_plan.md` 等待用户点击 **Proceed**。
 
 1. **严禁越权改代码 + 优先感知跨端共享上下文**：
