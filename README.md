@@ -119,10 +119,12 @@ Antigravity will detect your home directory, install the plugin files, and verif
 
 ## Usage
 
-1. **Regular tasks**: Just chat normally — Gemini responds and edits code directly.
-2. **Complex features / refactors / tricky bugs**: Type **`/codex <your request>`** in the Antigravity input box.
-3. **Approve the plan**: Review the generated `implementation_plan.md` card, leave inline comments if needed, and click **Proceed**.
-4. **First-time permission**: When Antigravity prompts to run `run-codex.sh` (or `run-codex.ps1`), click **Always Allow** so future runs are completely seamless.
+1. **Regular tasks**: Just chat normally — Antigravity handles everything directly.
+2. **Start collaboration**: Type **`/codex <your request>`** in the Antigravity input box to pick your Codex project (or current workspace), thread (new or existing), model, reasoning depth, and speed tier.
+3. **Continue seamlessly in the same conversation**: Once selected, your `/codex` project, thread, and settings stay locked for the rest of that conversation — **no need to type `/codex` again** on follow-up messages.
+4. **Switch project / session / model**: Type **`/codex`** again inside the same conversation to re-open the picker.
+5. **Exit `/codex` in the current conversation**: Simply say **`exit /codex`** (or **`退出 /codex`**) to return to native Antigravity mode for the rest of the chat. (To disable the plugin globally, toggle `codex-collaborator` off in Antigravity's **Customizations** page.)
+6. **Approve & first-time permission**: For complex changes, review the generated `implementation_plan.md` card and click **Proceed** (lightweight operational tasks take the Fast Path automatically). When Antigravity first prompts to run `run-codex.sh` (or `run-codex.ps1`), click **Always Allow** for seamless future runs.
 
 ---
 
