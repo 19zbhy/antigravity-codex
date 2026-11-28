@@ -10,7 +10,9 @@
 
 [CmdletBinding()]
 param(
-  [string]$TargetHome = $HOME
+  [string]$TargetHome = $HOME,
+  [switch]$DryRun,
+  [switch]$Uninstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,9 +21,31 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $srcPluginDir = Join-Path $scriptDir "plugin"
 $destPluginDir = Join-Path $TargetHome ".gemini\config\plugins\codex-collaborator"
 
+if ($Uninstall) {
+  if ($DryRun) {
+    Write-Output "[DRY-RUN] Would remove plugin directory: $destPluginDir"
+    exit 0
+  }
+  if (Test-Path -LiteralPath $destPluginDir) {
+    Remove-Item -LiteralPath $destPluginDir -Recurse -Force
+    Write-Output "==> Uninstalled antigravity-codex from: $destPluginDir"
+  } else {
+    Write-Output "==> Nothing to uninstall (directory not found): $destPluginDir"
+  }
+  exit 0
+}
+
 if (-not (Test-Path -LiteralPath $srcPluginDir -PathType Container)) {
   Write-Error "Plugin template directory not found at: $srcPluginDir"
   exit 1
+}
+
+if ($DryRun) {
+  Write-Output "[DRY-RUN] Would install antigravity-codex (codex-collaborator) to: $destPluginDir"
+  Write-Output "[DRY-RUN] Would copy plugin bundle from: $srcPluginDir"
+  Write-Output "[DRY-RUN] Would replace <USER_HOME> with '$TargetHome' in SKILL.md and rules/AGENTS.md"
+  Write-Output "[DRY-RUN] Would run run-codex.ps1 sync-options to populate local Codex models and projects"
+  exit 0
 }
 
 Write-Output "==> Installing antigravity-codex (codex-collaborator)..."

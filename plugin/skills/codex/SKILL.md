@@ -100,8 +100,11 @@ description: >-
 # 写代码 / 重构 / 修 Bug（workspace-write 沙箱）
 <USER_HOME>/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh execute /absolute/path/to/workspace /absolute/path/to/implementation_plan.md /absolute/path/to/artifact_dir/scratch/codex_last_message.md --model <model> --effort <effort> --tier <tier>
 
-# 只读代码审查 / 架构审计（strict read-only 沙箱，严禁改文件）
+# 只读代码审查 / 架构审计（strict read-only 沙箱，严禁改文件；支持 --base <branch> 与 --adversarial 红队对抗式审查）
 <USER_HOME>/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh review /absolute/path/to/workspace /absolute/path/to/artifact_dir/scratch/review_spec.md /absolute/path/to/artifact_dir/scratch/codex_last_message.md --model <model> --effort <effort> --tier <tier>
+
+# 红队对抗式分支 Diff 审查（无需手写 spec 文件，自动比对 --base main...HEAD）
+<USER_HOME>/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh review /absolute/path/to/workspace --base main --adversarial
 ```
 
 - **白名单轻量隔离（默认开启）**：脚本自动使用 `--ignore-user-config` 跳过桌面端 `~/.codex/config.toml` 里的重型插件与 MCP（仅白名单透传顶层 `model`、`model_reasoning_effort`、`service_tier` 与 `[features].respect_system_proxy`），以降低 Codex 启动与上下文开销（如需加载完整桌面配置可加 `--no-isolate`）。

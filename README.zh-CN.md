@@ -24,6 +24,9 @@
 
 ---
 
+> [!NOTE]
+> 本项目为独立开源社区作品，与 Google、Antigravity 或 OpenAI 无官方关联或背书。安全策略与版本记录见 [SECURITY.md](./SECURITY.md) 和 [CHANGELOG.md](./CHANGELOG.md)。
+
 ## 为什么选择 `antigravity-codex`？
 
 一套为 **Google Antigravity** 打造的轻量、零依赖原生插件，将 **Antigravity** 与 **Codex CLI** 的各自长板结合起来——并且**只在你输入 `/codex` 时按需触发**：
@@ -92,14 +95,18 @@ sequenceDiagram
 ```bash
 git clone https://github.com/19zbhy/antigravity-codex.git
 cd antigravity-codex
+./install.sh --dry-run   # 可选：先预演将修改的文件路径
 ./install.sh
+# 如需彻底卸载：./install.sh --uninstall
 ```
 
 **Windows (PowerShell)：**
 ```powershell
 git clone https://github.com/19zbhy/antigravity-codex.git
 cd antigravity-codex
+.\install.ps1 -DryRun    # 可选：先预演将修改的文件路径
 .\install.ps1
+# 如需彻底卸载：.\install.ps1 -Uninstall
 ```
 
 安装脚本会自动完成：
@@ -163,6 +170,9 @@ antigravity-codex/
 - [Silhouette-my/codex-in-anti](https://github.com/Silhouette-my/codex-in-anti) — `--ignore-user-config` 白名单隔离与 `--worktree` 分支隔离思路。
 - [lbc9168/antigravity-codex-worker](https://github.com/lbc9168/antigravity-codex-worker) — 分场景任务模板（`implementation` / `bugfix` / `review`）与严格 `read-only` 只读审查模式。
 - [JAY201368/codex-castor](https://github.com/JAY201368/codex-castor) — `doctor` 环境一键体检、结构化 `--output-schema` 交付报告（`report.schema.json`）、执行后自动耗时/Token 遥测与 Git Diff 摘要，以及 `cleanup-worktree` 安全清理设计。
+- [vacuityv/codex-plugin-antigravity](https://github.com/vacuityv/codex-plugin-antigravity) — 红队对抗式审查（`--adversarial`）与 `--base <branch>` 分支 Diff 审查思路。
+- [crazyzhang277/codex-antigravity-bridge](https://github.com/crazyzhang277/codex-antigravity-bridge) — 安装脚本预演模式（`--dry-run` / `-DryRun`）与一键干净卸载思路。
+- [IlleJiViN/codex-antigravity-subagent](https://github.com/IlleJiViN/codex-antigravity-subagent) — 独立社区项目合规声明与 `SECURITY.md` / `CHANGELOG.md` 规范。
 - [basicmachines-co/basic-memory](https://github.com/basicmachines-co/basic-memory) — [docs/SHARED_WORKSPACE.md](./docs/SHARED_WORKSPACE.md) 中推荐的可选跨端长期记忆 MCP 方案。
 
 ---

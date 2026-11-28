@@ -524,6 +524,36 @@ set -e
 assert_eq "input file + --prompt fails closed" "2" "$INLINE_MUTEX_RC"
 assert_contains "input file + --prompt error message" "mutually exclusive" "$INLINE_MUTEX_ERR"
 
+echo "=== Test 10: Adversarial review, --base diff review, installer --dry-run & --uninstall ==="
+: > "$ARGS_LOG"
+ADV_OUT="$(CODEX_HOME="$CODEX_HOME_1" "$RUNNER" review "$WT_REPO" --base HEAD --adversarial 2>&1)"
+ADV_ARGS="$(cat "$ARGS_LOG")"
+assert_contains "adversarial review runs in read-only sandbox" "-s read-only" "$ADV_ARGS"
+assert_contains "adversarial review uses Red-Team prompt header" "Red-Team Adversarial" "$ADV_ARGS"
+assert_contains "adversarial review runtime config reports adversarial=on" "adversarial=on" "$ADV_OUT"
+assert_contains "adversarial review runtime config reports base=HEAD" "base=HEAD" "$ADV_OUT"
+
+set +e
+ADV_EXEC_ERR="$(CODEX_HOME="$CODEX_HOME_1" "$RUNNER" execute "$WT_REPO" "$PLAN_FILE" --adversarial 2>&1)"
+ADV_EXEC_RC=$?
+BAD_BASE_ERR="$(CODEX_HOME="$CODEX_HOME_1" "$RUNNER" review "$WT_REPO" --base nonexistent-branch-xyz 2>&1)"
+BAD_BASE_RC=$?
+set -e
+assert_eq "--adversarial rejected on execute" "2" "$ADV_EXEC_RC"
+assert_contains "--adversarial execute error message" "only supported with 'review'" "$ADV_EXEC_ERR"
+assert_eq "--base fails closed on nonexistent ref" "2" "$BAD_BASE_RC"
+assert_contains "--base nonexistent ref error message" "does not exist" "$BAD_BASE_ERR"
+
+DRY_HOME="${TMP_ROOT}/dry_home"
+mkdir -p "$DRY_HOME"
+DRY_OUT="$(TARGET_HOME="$DRY_HOME" CODEX_HOME="$CODEX_HOME_1" "$INSTALLER" --dry-run)"
+assert_contains "install.sh --dry-run prints DRY-RUN preview" "[DRY-RUN]" "$DRY_OUT"
+assert_eq "install.sh --dry-run creates nothing on disk" "0" "$( [[ -d "${DRY_HOME}/.gemini" ]] && echo 1 || echo 0 )"
+
+UNINST_OUT="$(TARGET_HOME="$FAKE_HOME" "$INSTALLER" --uninstall)"
+assert_contains "install.sh --uninstall confirms removal" "Uninstalled antigravity-codex" "$UNINST_OUT"
+assert_eq "install.sh --uninstall removed plugin dir" "0" "$( [[ -d "${FAKE_HOME}/.gemini/config/plugins/codex-collaborator" ]] && echo 1 || echo 0 )"
+
 echo ""
 echo "Summary: ${PASS_COUNT} passed, ${FAIL_COUNT} failed."
 if [[ "$FAIL_COUNT" -ne 0 ]]; then

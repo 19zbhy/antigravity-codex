@@ -313,6 +313,25 @@ respect_system_proxy = true
   Assert-Eq "input file + -Prompt fails closed" "2" "$inlineMutexRc"
   Assert-Contains "input file + -Prompt error" "mutually exclusive" $inlineMutexOut
 
+  Write-Output "=== Test 8: Adversarial review, -Base, install.ps1 -DryRun & -Uninstall ==="
+  if (Test-Path $argsLog) { Remove-Item $argsLog -Force }
+  $advOut = (& pwsh -NoProfile -File $runner review $wtRepo -Base HEAD -Adversarial 2>&1) -join "`n"
+  $advArgs = Get-Content -LiteralPath $argsLog -Raw
+  Assert-Contains "-Adversarial runs in read-only sandbox" "-s read-only" $advArgs
+  Assert-Contains "-Adversarial uses Red-Team header" "Red-Team Adversarial" $advArgs
+  Assert-Contains "-Adversarial reports adversarial=on" "adversarial=on" $advOut
+  Assert-Contains "-Base reports base=HEAD" "base=HEAD" $advOut
+
+  $dryHome = Join-Path $tmpRoot "dry_home"
+  New-Item -ItemType Directory -Path $dryHome -Force | Out-Null
+  $dryOut = (& pwsh -NoProfile -File $installer -TargetHome $dryHome -DryRun 2>&1) -join "`n"
+  Assert-Contains "install.ps1 -DryRun prints preview" "[DRY-RUN]" $dryOut
+  Assert-Eq "install.ps1 -DryRun creates nothing" "False" "$(Test-Path -LiteralPath (Join-Path $dryHome '.gemini'))"
+
+  $uninstOut = (& pwsh -NoProfile -File $installer -TargetHome $fakeHome -Uninstall 2>&1) -join "`n"
+  Assert-Contains "install.ps1 -Uninstall confirms removal" "Uninstalled antigravity-codex" $uninstOut
+  Assert-Eq "install.ps1 -Uninstall removed plugin dir" "False" "$(Test-Path -LiteralPath (Join-Path $fakeHome '.gemini\config\plugins\codex-collaborator'))"
+
   $env:Path = $origPath
   Write-Output ""
   Write-Output "Summary: $script:pass passed, $script:fail failed."

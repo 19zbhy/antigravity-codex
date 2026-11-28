@@ -12,9 +12,52 @@ SRC_PLUGIN_DIR="${SCRIPT_DIR}/plugin"
 USER_HOME="${TARGET_HOME:-${HOME}}"
 DEST_PLUGIN_DIR="${USER_HOME}/.gemini/config/plugins/codex-collaborator"
 
+DRY_RUN="0"
+UNINSTALL="0"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run) DRY_RUN="1"; shift ;;
+    --uninstall) UNINSTALL="1"; shift ;;
+    -h|--help)
+      cat <<'EOF'
+Usage: ./install.sh [--dry-run] [--uninstall]
+  --dry-run    Preview planned file changes without modifying disk.
+  --uninstall  Remove ~/.gemini/config/plugins/codex-collaborator cleanly.
+EOF
+      exit 0
+      ;;
+    *)
+      echo "ERROR: Unknown option '$1' (expected --dry-run or --uninstall)" >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ "$UNINSTALL" == "1" ]]; then
+  if [[ "$DRY_RUN" == "1" ]]; then
+    echo "[DRY-RUN] Would remove plugin directory: $DEST_PLUGIN_DIR"
+    exit 0
+  fi
+  if [[ -d "$DEST_PLUGIN_DIR" ]]; then
+    rm -rf "$DEST_PLUGIN_DIR"
+    echo "==> Uninstalled antigravity-codex from: $DEST_PLUGIN_DIR"
+  else
+    echo "==> Nothing to uninstall (directory not found): $DEST_PLUGIN_DIR"
+  fi
+  exit 0
+fi
+
 if [[ ! -d "$SRC_PLUGIN_DIR" ]]; then
   echo "ERROR: Plugin template directory not found at: $SRC_PLUGIN_DIR" >&2
   exit 1
+fi
+
+if [[ "$DRY_RUN" == "1" ]]; then
+  echo "[DRY-RUN] Would install antigravity-codex (codex-collaborator) to: $DEST_PLUGIN_DIR"
+  echo "[DRY-RUN] Would copy plugin bundle from: $SRC_PLUGIN_DIR"
+  echo "[DRY-RUN] Would replace <USER_HOME> with '${USER_HOME}' in SKILL.md and rules/AGENTS.md"
+  echo "[DRY-RUN] Would run run-codex.sh sync-options to populate local Codex models and projects"
+  exit 0
 fi
 
 echo "==> Installing antigravity-codex (codex-collaborator)..."

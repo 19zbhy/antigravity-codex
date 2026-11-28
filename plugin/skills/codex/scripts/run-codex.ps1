@@ -53,9 +53,13 @@ param(
   [Parameter(Mandatory = $false)]
   [string]$Prompt = "",
 
+  [Parameter(Mandatory = $false)]
+  [string]$Base = "",
+
   [switch]$ExcludeState,
   [switch]$Worktree,
   [switch]$Structured,
+  [switch]$Adversarial,
   [switch]$DeleteBranch,
   [switch]$Force,
   [switch]$QuitAppOnLock,
@@ -734,6 +738,17 @@ if ([string]::IsNullOrWhiteSpace($WorkspaceDir) -or -not (Test-Path -LiteralPath
   exit 2
 }
 
+if ($Adversarial -or (-not [string]::IsNullOrWhiteSpace($Base))) {
+  if ($Mode -ne "review") {
+    [Console]::Error.WriteLine("ERROR: -Adversarial and -Base are only supported with 'review'.")
+    exit 2
+  }
+}
+
+if (($Mode -eq "review") -and [string]::IsNullOrWhiteSpace($InputFile) -and [string]::IsNullOrWhiteSpace($Prompt) -and (-not [string]::IsNullOrWhiteSpace($Base))) {
+  $Prompt = "Review all changes in git diff ${Base}...HEAD (and any uncommitted changes in the working tree)."
+}
+
 $tmpPromptFile = ""
 if (-not [string]::IsNullOrWhiteSpace($Prompt)) {
   if ((-not [string]::IsNullOrWhiteSpace($InputFile)) -and ($InputFile -ne "-")) {
@@ -834,6 +849,28 @@ try {
     $schemaFlags = @("--output-schema", $schemaPath)
   }
 
+  $baseDiffContext = ""
+  if (-not [string]::IsNullOrWhiteSpace($Base)) {
+    if (-not $isGitRepo) {
+      [Console]::Error.WriteLine("ERROR: -Base requires a Git repository, but '$WorkspaceDir' is not inside a Git work tree.")
+      exit 2
+    }
+    $prevEapBase = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+      & git rev-parse --verify "${Base}^{commit}" *> $null
+      if ($LASTEXITCODE -ne 0) {
+        [Console]::Error.WriteLine("ERROR: -Base ref '$Base' does not exist in this Git repository.")
+        exit 2
+      }
+      $baseDiffStat = (@(& git diff --stat "${Base}...HEAD" 2>$null | Select-Object -First 40)) -join "`n"
+    } finally {
+      $ErrorActionPreference = $prevEapBase
+    }
+    $statNote = if (-not [string]::IsNullOrWhiteSpace($baseDiffStat)) { $baseDiffStat } else { "no committed diff vs $Base" }
+    $baseDiffContext = " Focus specifically on changes relative to base ref '$Base' (inspect 'git diff ${Base}...HEAD' and any uncommitted changes). Diff stat summary: $statNote."
+  }
+
   $isolateFlags = @()
   $cfgProvider = Get-TomlTopLevelString "model_provider" $configFile
   if ($isolate -and ($helpText -match "--ignore-user-config")) {
@@ -867,6 +904,8 @@ try {
   if ($isolateFlags.Count -gt 0) { $overrideDesc += "isolated=on" }
   if ($worktreeFlags.Count -gt 0) { $overrideDesc += "worktree=on" }
   if ($schemaFlags.Count -gt 0) { $overrideDesc += "schema=on" }
+  if ($Adversarial) { $overrideDesc += "adversarial=on" }
+  if (-not [string]::IsNullOrWhiteSpace($Base)) { $overrideDesc += "base=$Base" }
 
   if ($overrideDesc.Count -gt 0) {
     Write-Output "==> [Codex Engineer] Runtime config: $($overrideDesc -join ' ')"
@@ -891,8 +930,13 @@ try {
       if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
     }
     $cwd = (Get-Location).Path
-    $promptHeader = "You are a Principal Code Reviewer & Architecture Auditor in a Google Antigravity + OpenAI Codex workflow. You are running in strict read-only mode inside $cwd - do not attempt to modify any files. Read the audit scope in <stdin>, inspect the relevant source files or git diff concisely (never dump full large files to stdout), and report concrete findings grouped by severity (Critical / Warning / Suggestion) with exact file:line references and actionable recommendations."
-    Write-Output "==> [Codex Reviewer] Starting read-only audit in: $WorkspaceDir"
+    if ($Adversarial) {
+      $promptHeader = "You are a Red-Team Adversarial Code & Design Auditor in a Google Antigravity + OpenAI Codex workflow. You are running in strict read-only mode inside $cwd - do not modify any files. Do NOT praise the code; actively try to break it. Hunt for flawed assumptions, edge-case crashes, race conditions, locking/state bugs, security/permission boundary gaps, and silent failure modes.$baseDiffContext Inspect files or diffs concisely (never dump full large files to stdout) and report concrete findings grouped by severity (P0 Critical / P1 High / P2 Medium / P3 Low) with exact file:line references, minimal reproduction paths, and direct fixes."
+      Write-Output "==> [Codex Reviewer] Starting adversarial read-only audit in: $WorkspaceDir"
+    } else {
+      $promptHeader = "You are a Principal Code Reviewer & Architecture Auditor in a Google Antigravity + OpenAI Codex workflow. You are running in strict read-only mode inside $cwd - do not attempt to modify any files.$baseDiffContext Read the audit scope in <stdin>, inspect the relevant source files or git diff concisely (never dump full large files to stdout), and report concrete findings grouped by severity (Critical / Warning / Suggestion) with exact file:line references and actionable recommendations."
+      Write-Output "==> [Codex Reviewer] Starting read-only audit in: $WorkspaceDir"
+    }
     Write-Output "==> [Codex Reviewer] Audit spec: $InputFile"
     $argsList = @("exec") + $approvalFlags + @("--color", "never") + $jsonFlags + $isolateFlags + $schemaFlags + $overrideFlags + $gitFlags + $outFlags + @($promptHeader)
   } elseif ($Mode -eq "fork") {

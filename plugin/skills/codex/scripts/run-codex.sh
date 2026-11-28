@@ -23,7 +23,7 @@ Usage:
   run-codex.sh show-session     <session_id> [--turns <N>]
   run-codex.sh cleanup-worktree <worktree_path> [--delete-branch] [--force]
   run-codex.sh execute <workspace_dir> [<plan_file> [output_last_message_file]] [--prompt <text>] [--output <file>] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--worktree] [--structured | --schema <file>] [--no-isolate] [--verbose]
-  run-codex.sh review  <workspace_dir> [<spec_file> [output_last_message_file]] [--prompt <text>] [--output <file>] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--structured | --schema <file>] [--no-isolate] [--verbose]
+  run-codex.sh review  <workspace_dir> [<spec_file> [output_last_message_file]] [--prompt <text>] [--output <file>] [--base <branch>] [--adversarial] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--structured | --schema <file>] [--no-isolate] [--verbose]
   run-codex.sh resume  <workspace_dir> [<fix_file>  [output_last_message_file]] [--prompt <text>] [--output <file>] [--session <id> | --last] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--quit-app-on-lock] [--no-isolate] [--verbose]
   run-codex.sh fork    <workspace_dir> [<plan_file> [output_last_message_file]] [--prompt <text>] [--output <file>] [--session <id>] [--model <name>] [--effort <level>] [--tier <priority|default|flex|fast>] [--no-isolate] [--verbose]
 
@@ -970,6 +970,8 @@ ISOLATE="${CODEX_ISOLATE:-1}"
 USE_WORKTREE="0"
 USE_STRUCTURED="0"
 SCHEMA_FILE=""
+ADVERSARIAL="0"
+BASE_REF=""
 QUIT_APP_ON_LOCK="${CODEX_QUIT_APP_ON_LOCK:-0}"
 VERBOSE="${CODEX_VERBOSE:-0}"
 
@@ -1032,6 +1034,15 @@ while [[ $# -gt 0 ]]; do
       SCHEMA_FILE="$2"
       shift 2
       ;;
+    --adversarial)
+      ADVERSARIAL="1"
+      shift
+      ;;
+    --base)
+      [[ $# -ge 2 ]] || { echo "ERROR: --base requires a Git branch or ref" >&2; exit 2; }
+      BASE_REF="$2"
+      shift 2
+      ;;
     --no-isolate)
       ISOLATE="0"
       shift
@@ -1073,6 +1084,18 @@ cleanup_tmp_prompt() {
   fi
 }
 trap cleanup_tmp_prompt EXIT
+
+if [[ "$ADVERSARIAL" == "1" ]] || [[ -n "$BASE_REF" ]]; then
+  if [[ "$MODE" != "review" ]]; then
+    echo "ERROR: --adversarial and --base are only supported with 'review'." >&2
+    exit 2
+  fi
+fi
+
+# Allow 'review --base <ref>' (or '--adversarial') without an explicit spec file
+if [[ "$MODE" == "review" ]] && [[ -z "$INPUT_FILE" ]] && [[ -z "$PROMPT_TEXT" ]] && [[ -n "$BASE_REF" ]]; then
+  PROMPT_TEXT="Review all changes in git diff ${BASE_REF}...HEAD (and any uncommitted changes in the working tree)."
+fi
 
 if [[ -n "$PROMPT_TEXT" ]]; then
   if [[ -n "$INPUT_FILE" ]] && [[ "$INPUT_FILE" != "-" ]]; then
@@ -1175,6 +1198,20 @@ if [[ "$USE_STRUCTURED" == "1" ]] || [[ -n "$SCHEMA_FILE" ]]; then
   SCHEMA_FLAGS=(--output-schema "$SCHEMA_FILE")
 fi
 
+BASE_DIFF_CONTEXT=""
+if [[ -n "$BASE_REF" ]]; then
+  if [[ "$IS_GIT_REPO" -ne 1 ]]; then
+    echo "ERROR: --base requires a Git repository, but '$WORKSPACE_DIR' is not inside a Git work tree." >&2
+    exit 2
+  fi
+  if ! git rev-parse --verify "${BASE_REF}^{commit}" >/dev/null 2>&1; then
+    echo "ERROR: --base ref '${BASE_REF}' does not exist in this Git repository." >&2
+    exit 2
+  fi
+  BASE_DIFF_STAT="$(git diff --stat "${BASE_REF}...HEAD" 2>/dev/null | head -n 40 || true)"
+  BASE_DIFF_CONTEXT=" Focus specifically on changes relative to base ref '${BASE_REF}' (inspect 'git diff ${BASE_REF}...HEAD' and any uncommitted changes). Diff stat summary: ${BASE_DIFF_STAT:-no committed diff vs ${BASE_REF}}."
+fi
+
 # Whitelist isolation (--ignore-user-config): skip desktop plugins & MCPs while keeping auth.json
 ISOLATE_FLAGS=()
 CFG_PROVIDER="$(read_toml_top_level "model_provider" "$CONFIG_FILE")"
@@ -1216,6 +1253,12 @@ if [[ ${#WORKTREE_FLAGS[@]} -gt 0 ]]; then
 fi
 if [[ ${#SCHEMA_FLAGS[@]} -gt 0 ]]; then
   OVERRIDE_DESC+=("schema=on")
+fi
+if [[ "$ADVERSARIAL" == "1" ]]; then
+  OVERRIDE_DESC+=("adversarial=on")
+fi
+if [[ -n "$BASE_REF" ]]; then
+  OVERRIDE_DESC+=("base=${BASE_REF}")
 fi
 
 release_codex_app_lock() {
@@ -1396,8 +1439,13 @@ case "$MODE" in
   review)
     # Reset stale artifacts from previous runs
     rm -f "$OUTPUT_FILE" "$SESSION_FILE" "$EVENTS_FILE"
-    PROMPT_HEADER="You are a Principal Code Reviewer & Architecture Auditor in a Google Antigravity + OpenAI Codex workflow. You are running in strict read-only mode inside $(pwd) — do not attempt to modify any files. Read the audit scope in <stdin>, inspect the relevant source files or git diff concisely (never dump full large files to stdout), and report concrete findings grouped by severity (Critical / Warning / Suggestion) with exact file:line references and actionable recommendations."
-    echo "==> [Codex Reviewer] Starting read-only audit in: $WORKSPACE_DIR"
+    if [[ "$ADVERSARIAL" == "1" ]]; then
+      PROMPT_HEADER="You are a Red-Team Adversarial Code & Design Auditor in a Google Antigravity + OpenAI Codex workflow. You are running in strict read-only mode inside $(pwd) — do not modify any files. Do NOT praise the code; actively try to break it. Hunt for flawed assumptions, edge-case crashes, race conditions, locking/state bugs, security/permission boundary gaps, and silent failure modes.${BASE_DIFF_CONTEXT} Inspect files or diffs concisely (never dump full large files to stdout) and report concrete findings grouped by severity (P0 Critical / P1 High / P2 Medium / P3 Low) with exact file:line references, minimal reproduction paths, and direct fixes."
+      echo "==> [Codex Reviewer] Starting adversarial read-only audit in: $WORKSPACE_DIR"
+    else
+      PROMPT_HEADER="You are a Principal Code Reviewer & Architecture Auditor in a Google Antigravity + OpenAI Codex workflow. You are running in strict read-only mode inside $(pwd) — do not attempt to modify any files.${BASE_DIFF_CONTEXT} Read the audit scope in <stdin>, inspect the relevant source files or git diff concisely (never dump full large files to stdout), and report concrete findings grouped by severity (Critical / Warning / Suggestion) with exact file:line references and actionable recommendations."
+      echo "==> [Codex Reviewer] Starting read-only audit in: $WORKSPACE_DIR"
+    fi
     echo "==> [Codex Reviewer] Audit spec: $INPUT_FILE"
     run_codex_cmd codex exec \
       "${APPROVAL_FLAGS[@]}" \

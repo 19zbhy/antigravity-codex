@@ -24,6 +24,9 @@
 
 ---
 
+> [!NOTE]
+> Independent community project. Not affiliated with or endorsed by Google, Antigravity, or OpenAI. See [SECURITY.md](./SECURITY.md) and [CHANGELOG.md](./CHANGELOG.md).
+
 ## Why `antigravity-codex`?
 
 A lightweight, zero-dependency native plugin for **Google Antigravity** that pairs **Antigravity** and **Codex CLI** using their complementary strengths — **only when you type `/codex`**:
@@ -92,14 +95,18 @@ sequenceDiagram
 ```bash
 git clone https://github.com/19zbhy/antigravity-codex.git
 cd antigravity-codex
+./install.sh --dry-run   # optional: preview changes first
 ./install.sh
+# To uninstall cleanly later: ./install.sh --uninstall
 ```
 
 **Windows (PowerShell):**
 ```powershell
 git clone https://github.com/19zbhy/antigravity-codex.git
 cd antigravity-codex
+.\install.ps1 -DryRun    # optional: preview changes first
 .\install.ps1
+# To uninstall cleanly later: .\install.ps1 -Uninstall
 ```
 
 The installer automatically:
@@ -163,6 +170,9 @@ antigravity-codex/
 - [Silhouette-my/codex-in-anti](https://github.com/Silhouette-my/codex-in-anti) — `--ignore-user-config` whitelist isolation and `--worktree` branch isolation.
 - [lbc9168/antigravity-codex-worker](https://github.com/lbc9168/antigravity-codex-worker) — scenario-specific task templates (`implementation` / `bugfix` / `review`) and strict `read-only` audit mode.
 - [JAY201368/codex-castor](https://github.com/JAY201368/codex-castor) — `doctor` environment health check, structured `--output-schema` delivery report (`report.schema.json`), automatic post-run duration/token telemetry & Git diff summary, and safe `cleanup-worktree` teardown.
+- [vacuityv/codex-plugin-antigravity](https://github.com/vacuityv/codex-plugin-antigravity) — red-team `--adversarial` review mode and `--base <branch>` branch-diff review workflow.
+- [crazyzhang277/codex-antigravity-bridge](https://github.com/crazyzhang277/codex-antigravity-bridge) — installer dry-run preview (`--dry-run` / `-DryRun`) and clean uninstall workflow.
+- [IlleJiViN/codex-antigravity-subagent](https://github.com/IlleJiViN/codex-antigravity-subagent) — independent community project disclaimer and `SECURITY.md` / `CHANGELOG.md` governance structure.
 - [basicmachines-co/basic-memory](https://github.com/basicmachines-co/basic-memory) — optional cross-agent long-term memory MCP recommended in [docs/SHARED_WORKSPACE.md](./docs/SHARED_WORKSPACE.md).
 
 ---
