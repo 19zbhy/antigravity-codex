@@ -4,9 +4,7 @@
 
 <h1 align="center">antigravity-codex</h1>
 
-<p align="center">
-  <em><code>/codex</code> is all you need.</em>
-</p>
+<h3 align="center"><code>/codex</code> is all you need.</h3>
 
 <p align="center">
   <strong>Google Antigravity × OpenAI Codex — 按需触发协同工作流</strong>
