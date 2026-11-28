@@ -1015,19 +1015,37 @@ try {
       Invoke-Expression $env:CODEX_RELEASE_LOCK_CMD
       return
     }
-    $targetProc = $null
+    $hasCodexApp = $false
+    $hasChatGptApp = $false
+    $appServers = @()
     try {
-      $appServers = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match '(^|[\\/])codex(\.exe)?(\s|$).*app-server' })
+      $appServers = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+        ($_.CommandLine -match '(^|[\\/\"])codex(\.exe)?[\"\s].*app-server') -or
+        (($_.ExecutablePath -match '[\\/]codex(\.exe)?$') -and ($_.CommandLine -match 'app-server'))
+      })
       foreach ($p in $appServers) {
-        if ($p.CommandLine -match 'Codex') { $targetProc = "Codex"; break }
-        if ($p.CommandLine -match 'ChatGPT') { $targetProc = "ChatGPT"; break }
-      }
-      if (-not $targetProc -and $appServers.Count -eq 0) {
-        [Console]::Error.WriteLine("==> [Codex Engineer] No active codex app-server process detected; skipping app quit.")
-        return
+        $probe = if (-not [string]::IsNullOrWhiteSpace($p.ExecutablePath)) { $p.ExecutablePath } else { $p.CommandLine }
+        if ($probe -match '[\\/]ChatGPT[\\/]') { $hasChatGptApp = $true }
+        elseif ($probe -match '[\\/]Codex[\\/]') { $hasCodexApp = $true }
       }
     } catch {}
-    if (-not $targetProc) { $targetProc = "Codex" }
+
+    if ($appServers.Count -eq 0) {
+      [Console]::Error.WriteLine("==> [Codex Engineer] No active codex app-server process detected; skipping app quit.")
+      return
+    }
+    if ($hasCodexApp -and $hasChatGptApp) {
+      [Console]::Error.WriteLine("==> [Codex Engineer] Both Codex and ChatGPT app-server processes are running; refusing to guess which holds the lock. Please close the active app manually or use 'fork'.")
+      return
+    }
+    $targetProc = $null
+    if ($hasCodexApp) { $targetProc = "Codex" }
+    elseif ($hasChatGptApp) { $targetProc = "ChatGPT" }
+    else {
+      [Console]::Error.WriteLine("==> [Codex Engineer] Active codex app-server could not be uniquely attributed to Codex or ChatGPT; refusing to close desktop apps automatically. Please release the lock manually or use 'fork'.")
+      return
+    }
+
     [Console]::Error.WriteLine("==> [Codex Engineer] Closing identified lock holder app: $targetProc")
     Get-Process -Name $targetProc -ErrorAction SilentlyContinue | ForEach-Object {
       try { $_.CloseMainWindow() | Out-Null } catch {}
@@ -1143,6 +1161,9 @@ try {
       Get-Content -LiteralPath $OutputFile -Raw -Encoding UTF8 | Write-Output
     }
     if ($isGitRepo -and ($Mode -ne "review")) {
+      if ($Worktree) {
+        Write-Output "==> [Codex Engineer] Note: -Worktree was enabled; verify changes inside the created worktree (Git summary below reflects the original workspace checkout)."
+      }
       $gitStatusLines = @(& git status --short 2>$null | Select-Object -First 40)
       if ($gitStatusLines.Count -gt 0) {
         Write-Output ""

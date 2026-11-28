@@ -1286,28 +1286,37 @@ release_codex_app_lock() {
   fi
   case "$(uname -s 2>/dev/null || echo unknown)" in
     Darwin)
-      local app_server_procs target_app=""
-      app_server_procs="$(ps -eo args= 2>/dev/null | grep -E '(^|/)codex([[:space:]]|$).*app-server' | grep -v grep || true)"
-      if printf '%s\n' "$app_server_procs" | grep -q 'Codex\.app'; then
-        target_app="Codex"
-      elif printf '%s\n' "$app_server_procs" | grep -q 'ChatGPT\.app'; then
-        target_app="ChatGPT"
-      fi
-
-      if [[ -n "$target_app" ]]; then
-        echo "==> [Codex Engineer] Identified lock holder app: ${target_app}" >&2
-        osascript -e "if application \"${target_app}\" is running then tell application \"${target_app}\" to quit" >/dev/null 2>&1 || true
-      elif [[ -n "$app_server_procs" ]]; then
-        echo "==> [Codex Engineer] Lock holder app could not be uniquely identified; refusing to blindly quit ChatGPT. Only closing Codex if running." >&2
-        osascript -e 'if application "Codex" is running then tell application "Codex" to quit' >/dev/null 2>&1 || true
-      else
+      local app_server_procs has_codex_app=0 has_chatgpt_app=0 target_app=""
+      app_server_procs="$(ps -eo args= 2>/dev/null | grep -E '(^|/|")codex("|[[:space:]]|$).*app-server' | grep -v grep || true)"
+      if [[ -z "$app_server_procs" ]]; then
         echo "==> [Codex Engineer] No active codex app-server process detected; skipping app quit." >&2
         return 0
       fi
+      if printf '%s\n' "$app_server_procs" | grep -q 'Codex\.app'; then
+        has_codex_app=1
+      fi
+      if printf '%s\n' "$app_server_procs" | grep -q 'ChatGPT\.app'; then
+        has_chatgpt_app=1
+      fi
+
+      if [[ "$has_codex_app" -eq 1 ]] && [[ "$has_chatgpt_app" -eq 1 ]]; then
+        echo "==> [Codex Engineer] Both Codex.app and ChatGPT.app app-server processes are running; refusing to guess which holds the lock. Please close the active app manually or use 'fork'." >&2
+        return 0
+      elif [[ "$has_codex_app" -eq 1 ]]; then
+        target_app="Codex"
+      elif [[ "$has_chatgpt_app" -eq 1 ]]; then
+        target_app="ChatGPT"
+      else
+        echo "==> [Codex Engineer] Active codex app-server could not be uniquely attributed to Codex.app or ChatGPT.app; refusing to close desktop apps automatically. Please release the lock manually or use 'fork'." >&2
+        return 0
+      fi
+
+      echo "==> [Codex Engineer] Identified lock holder app: ${target_app}" >&2
+      osascript -e "if application \"${target_app}\" is running then tell application \"${target_app}\" to quit" >/dev/null 2>&1 || true
 
       local waited=0
       while [[ "$waited" -lt 12 ]]; do
-        if ! ps -eo args= 2>/dev/null | grep -E '(^|/)codex([[:space:]]|$).*app-server' | grep -qv grep; then
+        if ! ps -eo args= 2>/dev/null | grep -E '(^|/|")codex("|[[:space:]]|$).*app-server' | grep -qv grep; then
           break
         fi
         sleep 0.5
@@ -1315,8 +1324,18 @@ release_codex_app_lock() {
       done
       ;;
     Linux)
-      pkill -u "$(id -u)" -TERM -f '(^|/)codex([[:space:]]|$).*app-server' >/dev/null 2>&1 || true
-      sleep 1
+      local pids pid_count
+      pids="$(pgrep -u "$(id -u)" -f '(^|/)codex([[:space:]]|$).*app-server' 2>/dev/null || true)"
+      pid_count="$(printf '%s\n' "$pids" | awk 'NF { c++ } END { print c + 0 }')"
+      if [[ "$pid_count" -eq 1 ]]; then
+        echo "==> [Codex Engineer] Identified single codex app-server PID (${pids}); sending SIGTERM..." >&2
+        kill -TERM "$pids" >/dev/null 2>&1 || true
+        sleep 1
+      elif [[ "$pid_count" -gt 1 ]]; then
+        echo "==> [Codex Engineer] Multiple codex app-server processes detected (${pid_count}); refusing to terminate all of them. Please stop the lock holder manually or use 'fork'." >&2
+      else
+        echo "==> [Codex Engineer] No active codex app-server process detected; skipping lock release." >&2
+      fi
       ;;
   esac
 }
@@ -1442,6 +1461,9 @@ run_codex_cmd() {
       cat "$OUTPUT_FILE"
     fi
     if [[ "$IS_GIT_REPO" -eq 1 ]] && [[ "$MODE" != "review" ]]; then
+      if [[ "$USE_WORKTREE" == "1" ]]; then
+        echo "==> [Codex Engineer] Note: --worktree was enabled; verify changes inside the created worktree (Git summary below reflects the original workspace checkout)."
+      fi
       local git_status_out git_diff_stat
       git_status_out="$(git status --short 2>/dev/null | head -n 40 || true)"
       if [[ -n "$git_status_out" ]]; then

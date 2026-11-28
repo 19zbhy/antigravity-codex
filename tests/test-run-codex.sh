@@ -611,15 +611,16 @@ set -e
 assert_eq "fork returning identical source ID exits non-zero" "1" "$FORK_SAME_ID_RC"
 assert_eq "stale source .session_id deleted when fork returns identical ID" "0" "$( [[ -f "$FORK_FAULT_SID" ]] && echo 1 || echo 0 )"
 
-# 11d. macOS targeted lock release only closes the actual lock-holding app (not both Codex & ChatGPT)
+# 11d. macOS targeted lock release: Codex.app, ChatGPT.app, unknown attribution, and multi-app coexistence
 if [[ "$(uname -s 2>/dev/null || echo unknown)" == "Darwin" ]]; then
   STUB_BIN="${TMP_ROOT}/stub_lock_bin"
   OSA_LOG="${TMP_ROOT}/osascript.log"
+  PS_OUT_FILE="${TMP_ROOT}/ps_mock.txt"
   mkdir -p "$STUB_BIN"
   cat > "${STUB_BIN}/ps" <<EOF
 #!/usr/bin/env bash
 if [[ ! -s "$OSA_LOG" ]]; then
-  echo "/Applications/Codex.app/Contents/Resources/codex app-server"
+  cat "$PS_OUT_FILE"
 fi
 EOF
   cat > "${STUB_BIN}/osascript" <<EOF
@@ -628,11 +629,34 @@ printf '%s\n' "\$*" >> "$OSA_LOG"
 exit 0
 EOF
   chmod +x "${STUB_BIN}/ps" "${STUB_BIN}/osascript"
+
+  # Case 1: Codex.app only -> quits Codex, never ChatGPT
   : > "$OSA_LOG"
-  PATH="${STUB_BIN}:${PATH}" CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$SHARED_WS" "$PLAN_FILE" "${TMP_ROOT}/stub_lock/last.md" --session "sess-stub-1" --quit-app-on-lock >/dev/null 2>&1
+  printf '%s\n' "/Applications/Codex.app/Contents/Resources/codex app-server" > "$PS_OUT_FILE"
+  PATH="${STUB_BIN}:${PATH}" CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$SHARED_WS" "$PLAN_FILE" "${TMP_ROOT}/stub_lock1/last.md" --session "sess-stub-1" --quit-app-on-lock >/dev/null 2>&1
   OSA_CALLED="$(cat "$OSA_LOG")"
   assert_contains "targeted lock release quits Codex when Codex.app holds app-server" 'tell application "Codex" to quit' "$OSA_CALLED"
   assert_not_contains "targeted lock release does NOT quit ChatGPT when Codex.app holds app-server" 'ChatGPT' "$OSA_CALLED"
+
+  # Case 2: ChatGPT.app only -> quits ChatGPT, never Codex
+  : > "$OSA_LOG"
+  printf '%s\n' '"/Applications/ChatGPT.app/Contents/Resources/codex-cli/codex" app-server' > "$PS_OUT_FILE"
+  PATH="${STUB_BIN}:${PATH}" CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$SHARED_WS" "$PLAN_FILE" "${TMP_ROOT}/stub_lock2/last.md" --session "sess-stub-2" --quit-app-on-lock >/dev/null 2>&1
+  OSA_CALLED="$(cat "$OSA_LOG")"
+  assert_contains "targeted lock release quits ChatGPT when ChatGPT.app holds app-server" 'tell application "ChatGPT" to quit' "$OSA_CALLED"
+  assert_not_contains "targeted lock release does NOT quit Codex when ChatGPT.app holds app-server" 'tell application "Codex"' "$OSA_CALLED"
+
+  # Case 3: Unknown standalone /usr/local/bin/codex app-server -> refuses to quit any desktop app
+  : > "$OSA_LOG"
+  printf '%s\n' "/usr/local/bin/codex app-server" > "$PS_OUT_FILE"
+  PATH="${STUB_BIN}:${PATH}" CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$SHARED_WS" "$PLAN_FILE" "${TMP_ROOT}/stub_lock3/last.md" --session "sess-stub-3" --quit-app-on-lock >/dev/null 2>&1
+  assert_eq "unknown app-server attribution invokes osascript zero times" "0" "$(wc -l < "$OSA_LOG" | tr -d ' ')"
+
+  # Case 4: Both Codex.app and ChatGPT.app running -> refuses to guess
+  : > "$OSA_LOG"
+  printf '%s\n%s\n' "/Applications/Codex.app/Contents/Resources/codex app-server" "/Applications/ChatGPT.app/Contents/Resources/codex app-server" > "$PS_OUT_FILE"
+  PATH="${STUB_BIN}:${PATH}" CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$SHARED_WS" "$PLAN_FILE" "${TMP_ROOT}/stub_lock4/last.md" --session "sess-stub-4" --quit-app-on-lock >/dev/null 2>&1
+  assert_eq "multi-app coexistence invokes osascript zero times" "0" "$(wc -l < "$OSA_LOG" | tr -d ' ')"
 fi
 
 echo ""
