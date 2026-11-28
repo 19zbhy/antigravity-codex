@@ -87,7 +87,7 @@ Both **Google Antigravity** and **OpenAI Codex** are strong on their own — and
    ```
    If not signed in yet, run `codex login` once in your terminal.
 
-### Option A: One-Command CLI Installer (Recommended)
+### One-Command CLI Installer
 
 **macOS / Linux:**
 ```bash
@@ -111,12 +111,6 @@ Verify everything is green after installation:
 ```bash
 ~/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh doctor
 ```
-
-### Option B: Agent-Native Zero-CLI Install
-
-Drag and drop [docs/INSTALL_WITH_ANTIGRAVITY.md](./docs/INSTALL_WITH_ANTIGRAVITY.md) directly into an Antigravity chat and say:
-
-> *"Please follow this guide to install and verify the `/codex` plugin on my machine."*
 
 ---
 

@@ -345,7 +345,7 @@
       <div class="container">
         <div class="eyebrow">
           <span class="dot"></span>
-          <span data-zh="Google Antigravity × OpenAI Codex · 零 MCP 常驻 · 三平台 CI 验证" data-en="Google Antigravity × OpenAI Codex · Zero MCP Server · 3-Platform CI">Google Antigravity × OpenAI Codex · 零 MCP 常驻 · 三平台 CI 验证</span>
+          <span data-zh="Google Antigravity × OpenAI Codex" data-en="Google Antigravity × OpenAI Codex">Google Antigravity × OpenAI Codex</span>
         </div>
         <h1><span class="slash-hero">/codex</span> is all you need.</h1>
         <p class="hero-sub"
@@ -448,7 +448,6 @@
           <div class="tabs">
             <button class="tab-btn active" data-tab="unix" type="button">macOS / Linux</button>
             <button class="tab-btn" data-tab="win" type="button">Windows (PowerShell)</button>
-            <button class="tab-btn" data-tab="agent" type="button" data-zh="零终端拖入安装" data-en="Zero-CLI Agent Install">零终端拖入安装</button>
           </div>
 
           <div class="tab-panel active" id="tab-unix">
@@ -470,16 +469,6 @@ cd antigravity-codex
 .\install.ps1 -DryRun    # optional: preview changes first
 .\install.ps1
 pwsh -NoProfile -File "$HOME\.gemini\config\plugins\codex-collaborator\skills\codex\scripts\run-codex.ps1" doctor</code></pre>
-            </div>
-          </div>
-
-          <div class="tab-panel" id="tab-agent">
-            <div class="code-wrap">
-              <button class="copy-btn" type="button" data-copy="请严格按照 docs/INSTALL_WITH_ANTIGRAVITY.md，帮我在本机自动部署并验证这套 /codex 协同插件">Copy</button>
-              <pre><code data-zh="将 docs/INSTALL_WITH_ANTIGRAVITY.md 直接拖进 Antigravity 对话框并发送：
-「请严格按照这份文档，帮我在本机自动部署并验证这套 /codex 协同插件」" data-en="Drag docs/INSTALL_WITH_ANTIGRAVITY.md into an Antigravity chat and say:
-&quot;Please follow this guide to install and verify the /codex plugin on my machine.&quot;">将 docs/INSTALL_WITH_ANTIGRAVITY.md 直接拖进 Antigravity 对话框并发送：
-「请严格按照这份文档，帮我在本机自动部署并验证这套 /codex 协同插件」</code></pre>
             </div>
           </div>
         </div>
@@ -528,24 +517,59 @@ pwsh -NoProfile -File "$HOME\.gemini\config\plugins\codex-collaborator\skills\co
         </div>
         <div class="faq-list">
           <details>
-            <summary data-zh="平时不用 /codex 的普通对话会变慢或消耗额外上下文吗？" data-en="Does this slow down normal non-/codex chats?">平时不用 /codex 的普通对话会变慢或消耗额外上下文吗？</summary>
+            <summary data-zh="1. 平时不用 /codex 的普通对话会变慢或消耗额外上下文吗？" data-en="1. Does this slow down normal non-/codex chats?">1. 平时不用 /codex 的普通对话会变慢或消耗额外上下文吗？</summary>
             <p data-zh="不会。日常对话 100% 由 Antigravity 原生处理；仅预载约 150 tokens 的极简选单快照用于 1 轮出卡片，完整技能文档与历史对话列表只在调用 /codex 时才加载。"
                data-en="No. Regular chats stay 100% native Antigravity. Only a tiny ~150-token preload snapshot is registered for 1-turn picker popup; full skill rules and session lists lazy-load on /codex.">
               不会。日常对话 100% 由 Antigravity 原生处理；仅预载约 150 tokens 的极简选单快照用于 1 轮出卡片，完整技能文档与历史对话列表只在调用 /codex 时才加载。
             </p>
           </details>
           <details>
-            <summary data-zh="同一个对话需要每句都敲 /codex 吗？怎么切回纯 Antigravity？" data-en="Do I need to type /codex on every message?">同一个对话需要每句都敲 /codex 吗？怎么切回纯 Antigravity？</summary>
-            <p data-zh="不需要。首次选完后本对话自动锁定沿用；再次敲 /codex 可重新切换项目或模型；发「退出 /codex」即可解除锁定切回纯 Antigravity。"
-               data-en="No. Settings lock for the rest of the conversation after the first /codex. Type /codex again to switch, or say 'exit /codex' to return to native Antigravity.">
-              不需要。首次选完后本对话自动锁定沿用；再次敲 /codex 可重新切换项目或模型；发「退出 /codex」即可解除锁定切回纯 Antigravity。
+            <summary data-zh="2. 同一个对话需要每句都敲 /codex 吗？中途想关掉怎么办？" data-en="2. Do I need to type /codex on every message? How do I exit?">2. 同一个对话需要每句都敲 /codex 吗？中途想关掉怎么办？</summary>
+            <p data-zh="不需要。首次选完后本对话自动锁定沿用；再次敲 /codex 可重新切换项目、会话或模型；发「退出 /codex」即可解除锁定切回纯 Antigravity。如需全局停用，可在 Antigravity 自定义页面关闭 codex-collaborator。"
+               data-en="No. Settings lock for the rest of the conversation after the first /codex. Type /codex again to switch, or say 'exit /codex' to return to native Antigravity. To disable globally, toggle codex-collaborator off in Customizations.">
+              不需要。首次选完后本对话自动锁定沿用；再次敲 /codex 可重新切换项目、会话或模型；发「退出 /codex」即可解除锁定切回纯 Antigravity。如需全局停用，可在 Antigravity 自定义页面关闭 codex-collaborator。
             </p>
           </details>
           <details>
-            <summary data-zh="续聊老对话时提示“被 Codex 桌面端占用”怎么办？" data-en="What happens if Codex Desktop holds a thread lock?">续聊老对话时提示“被 Codex 桌面端占用”怎么办？</summary>
-            <p data-zh="插件绝不会偷偷关闭你的软件，而是弹窗让你二选一：同意优雅关闭 Codex 桌面端并原位续聊（--quit-app-on-lock），或不关闭并无损 fork 出新对话继续。"
-               data-en="The runner never kills your desktop app silently. It asks whether to gracefully close Codex Desktop (--quit-app-on-lock) and resume in-place, or keep it open and non-destructively fork.">
-              插件绝不会偷偷关闭你的软件，而是弹窗让你二选一：同意优雅关闭 Codex 桌面端并原位续聊（--quit-app-on-lock），或不关闭并无损 fork 出新对话继续。
+            <summary data-zh="3. 续聊老对话时提示“被 Codex 桌面端占用”怎么办？" data-en="3. What happens if Codex Desktop holds a thread lock?">3. 续聊老对话时提示“被 Codex 桌面端占用”怎么办？</summary>
+            <p data-zh="Codex 桌面端会对最近打开过的线程持有独占写锁（already has an active writer）。插件绝不会偷偷关闭你的软件，而是弹窗让你二选一：同意优雅关闭 Codex 桌面端并原位续聊（--quit-app-on-lock），或不关闭并无损 fork 出新对话继续。"
+               data-en="Codex Desktop holds an exclusive write lock on loaded threads. The runner never kills your app silently — it asks whether to gracefully close Codex Desktop (--quit-app-on-lock) and resume in-place, or keep it open and non-destructively fork.">
+              Codex 桌面端会对最近打开过的线程持有独占写锁（already has an active writer）。插件绝不会偷偷关闭你的软件，而是弹窗让你二选一：同意优雅关闭 Codex 桌面端并原位续聊（--quit-app-on-lock），或不关闭并无损 fork 出新对话继续。
+            </p>
+          </details>
+          <details>
+            <summary data-zh="4. 在 Antigravity 里续聊后，Codex 桌面端能看到更新吗？" data-en="4. Does Codex Desktop see updates made from Antigravity?">4. 在 Antigravity 里续聊后，Codex 桌面端能看到更新吗？</summary>
+            <p data-zh="能。原位 resume 会把新回合直接写回 Codex 桌面端的原对话，且两边读写的是磁盘上同一份源码；配合 init-shared 生成的 .agents/state.md，切回独立 Codex 时也能立刻感知最新进展。"
+               data-en="Yes. In-place resume appends new turns directly to the original Codex Desktop thread, and both tools edit the exact same files on disk. Paired with .agents/state.md, standalone Codex stays aware of recent milestones.">
+              能。原位 resume 会把新回合直接写回 Codex 桌面端的原对话，且两边读写的是磁盘上同一份源码；配合 init-shared 生成的 .agents/state.md，切回独立 Codex 时也能立刻感知最新进展。
+            </p>
+          </details>
+          <details>
+            <summary data-zh="5. 可以继承 Codex 老对话历史，但只让 Gemini（Antigravity）自己改代码吗？" data-en="5. Can I inherit a Codex thread's history and let Antigravity work alone?">5. 可以继承 Codex 老对话历史，但只让 Gemini（Antigravity）自己改代码吗？</summary>
+            <p data-zh="完全可以。先用 /codex 选定项目和老对话让 Antigravity 通过 show-session 读完历史上下文，再发一句「退出 /codex，接下来由你直接改」，Gemini 就会带着刚才继承的上下文直接干活，不再调用 Codex CLI。"
+               data-en="Yes! Pick the Codex project and thread via /codex so Antigravity loads the history via show-session, then say 'exit /codex, handle the rest directly' — Antigravity keeps the inherited context without invoking Codex CLI.">
+              完全可以。先用 /codex 选定项目和老对话让 Antigravity 通过 show-session 读完历史上下文，再发一句「退出 /codex，接下来由你直接改」，Gemini 就会带着刚才继承的上下文直接干活，不再调用 Codex CLI。
+            </p>
+          </details>
+          <details>
+            <summary data-zh="6. 整个协同流程里，Antigravity 和 Codex 各自负责什么？" data-en="6. How are responsibilities split between Antigravity and Codex?">6. 整个协同流程里，Antigravity 和 Codex 各自负责什么？</summary>
+            <p data-zh="Antigravity 负责前期发散沟通、写人话任务书、异常协调与最终 diff 终审；Codex CLI 负责所有实际的源码修改、终端命令执行与编译/Lint/单测现场闭环验证。"
+               data-en="Antigravity owns brainstorming, plain-language specs, approval gates, and final diff review; Codex CLI owns actual code edits, terminal commands, and local build/lint/test verification.">
+              Antigravity 负责前期发散沟通、写人话任务书、异常协调与最终 diff 终审；Codex CLI 负责所有实际的源码修改、终端命令执行与编译/Lint/单测现场闭环验证。
+            </p>
+          </details>
+          <details>
+            <summary data-zh="7. 为什么首次调用需要点一次 Always Allow？沙箱安全吗？" data-en="7. Why click Always Allow once, and how is sandbox safety enforced?">7. 为什么首次调用需要点一次 Always Allow？沙箱安全吗？</summary>
+            <p data-zh="安装脚本会把执行器路径替换为你的本机字面量绝对路径，首次放行 Always Allow 后即可免重复确认。脚本绝不传 --dangerously-bypass-approvals-and-sandbox：写任务严格使用 --approve-for-me（workspace-write），审查任务严格使用 -s read-only。"
+               data-en="The installer writes your literal absolute runner path so clicking Always Allow once enables seamless runs. We never pass --dangerously-bypass-approvals-and-sandbox: write runs use --approve-for-me and reviews strictly enforce -s read-only.">
+              安装脚本会把执行器路径替换为你的本机字面量绝对路径，首次放行 Always Allow 后即可免重复确认。脚本绝不传 --dangerously-bypass-approvals-and-sandbox：写任务严格使用 --approve-for-me（workspace-write），审查任务严格使用 -s read-only。
+            </p>
+          </details>
+          <details>
+            <summary data-zh="8. 支持 Windows、系统代理或自定义第三方模型 Provider 吗？" data-en="8. Does it support Windows, system proxies, and custom providers?">8. 支持 Windows、系统代理或自定义第三方模型 Provider 吗？</summary>
+            <p data-zh="全部支持。项目同时提供原生 PowerShell 执行器（run-codex.ps1）与 Bash 执行器（run-codex.sh），默认白名单透传 [features].respect_system_proxy；当检测到 ~/.codex/config.toml 配了非 openai 的自定义 model_provider 时，会自动加载完整配置。"
+               data-en="Yes. Both native PowerShell (run-codex.ps1) and Bash (run-codex.sh) runners are included. System proxy settings are whitelisted automatically, and custom non-openai model_provider configs automatically load the full config.toml.">
+              全部支持。项目同时提供原生 PowerShell 执行器（run-codex.ps1）与 Bash 执行器（run-codex.sh），默认白名单透传 [features].respect_system_proxy；当检测到 ~/.codex/config.toml 配了非 openai 的自定义 model_provider 时，会自动加载完整配置。
             </p>
           </details>
         </div>

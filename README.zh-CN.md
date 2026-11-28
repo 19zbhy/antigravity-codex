@@ -87,7 +87,7 @@
    ```
    若尚未登录，在终端运行一次 `codex login` 即可。
 
-### 方式一：命令行一键安装（推荐）
+### 命令行一键安装
 
 **macOS / Linux：**
 ```bash
@@ -111,12 +111,6 @@ cd antigravity-codex
 ```bash
 ~/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh doctor
 ```
-
-### 方式二：拖进 Antigravity 自动安装（零终端）
-
-直接把 [docs/INSTALL_WITH_ANTIGRAVITY.md](./docs/INSTALL_WITH_ANTIGRAVITY.md) 拖进 Antigravity 对话框，发送：
-
-> **「请严格按照这份文档，帮我在本机自动部署并验证这套 `/codex` 协同插件」**
 
 ---
 
