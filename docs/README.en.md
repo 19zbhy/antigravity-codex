@@ -28,6 +28,10 @@
   <img src="../assets/workflow-preview-en.png" alt="Antigravity x Codex Workflow" width="100%" />
 </p>
 
+### Live Demo: End-to-End `/codex` Workflow in One Window
+
+https://github.com/user-attachments/assets/03de406e-fdf6-4916-9fd9-ddea71463bde
+
 > [!NOTE]
 > Independent community project. Not affiliated with or endorsed by Google, Antigravity, or OpenAI. See [SECURITY.md](./SECURITY.md) and [CHANGELOG.md](./CHANGELOG.md).
 

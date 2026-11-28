@@ -28,6 +28,10 @@
   <img src="./assets/workflow-preview-zh.png" alt="Antigravity x Codex 工作流示意图" width="100%" />
 </p>
 
+### 实拍演示：一个窗口完成 `/codex` 完整开发与追问闭环
+
+https://github.com/user-attachments/assets/03de406e-fdf6-4916-9fd9-ddea71463bde
+
 > [!NOTE]
 > 本项目为独立开源社区作品，与 Google、Antigravity 或 OpenAI 无官方关联或背书。安全边界与版本记录见 [SECURITY.md](./docs/SECURITY.md) 和 [CHANGELOG.md](./docs/CHANGELOG.md)。
 
