@@ -20,78 +20,72 @@
   <a href="https://github.com/19zbhy/antigravity-codex/actions/workflows/ci.yml">
     <img src="https://github.com/19zbhy/antigravity-codex/actions/workflows/ci.yml/badge.svg" alt="CI" />
   </a>
+  <a href="./LICENSE">
+    <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License" />
+  </a>
+  <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg" alt="Platforms" />
 </p>
 
 <p align="center">
   <img src="./assets/workflow-preview.png" alt="Antigravity x Codex 工作流示意图" width="100%" />
 </p>
 
----
-
 > [!NOTE]
-> 本项目为独立开源社区作品，与 Google、Antigravity 或 OpenAI 无官方关联或背书。安全策略与版本记录见 [SECURITY.md](./SECURITY.md) 和 [CHANGELOG.md](./CHANGELOG.md)。
-
-## 为什么选择 `antigravity-codex`？
-
-一套为 **Google Antigravity** 打造的轻量、零依赖原生插件，将 **Antigravity** 与 **Codex CLI** 的各自长板结合起来——并且**只在你输入 `/codex` 时按需触发**：
-
-- **按需触发 + 1 轮秒弹本地化点选卡片**：日常问答和小改动依然由 Antigravity 原生完成；内置极轻量仅对 `/codex` 生效的 `rules/AGENTS.md` 预热快照，输入 `/codex` 时在第 1 轮并行加载 `SKILL.md` 并弹出全中文（或跟随用户语言）的 4 题选择器（Codex 项目 / 模型 / 思考深度 / 响应速度），将启动延迟直接砍半。
-- **深度原生 UI 门禁**：调用 Antigravity 原生 `implementation_plan.md` 方案卡片（`RequestFeedback: true`），渲染可点击的 **Proceed** 按钮并支持划词批注微调，未拍板前严禁修改一行代码。
-- **清晰的职责分工（`Why & What` vs. `How`）**：
-  - **Antigravity（需求分析 + 终审把关）**：负责发散思维探路、输出抓大放小的“人话”任务书、划定边缘防坑清单与红线边界、独立复核 `git diff` 并用人话汇报。
-  - **Codex CLI（工程实现 + 现场自测）**：拿到清晰目标后自主决定最地道的工程实现，并在工作区现场跑通构建、Lint 与单测闭环，一次交出能跑通的代码。
-- **零第三方桥接 · 100% 官方正门**：不装 MCP Server、不用逆向反代、不依赖 tmux，直接通过官方 `codex exec` / `codex exec resume --last` 命令行协作，合规稳定。
-- **基于本机缓存的秒弹点选卡片（模型 / 推理强度 / 服务档位）**：安装与每次执行后自动解析本机 `~/.codex/models_cache.json` 与 `~/.codex/config.toml` 顶层默认项并同步进 `SKILL.md`，触发 `/codex` 时零额外命令轮次直接弹出当前本机缓存中的模型与推理强度列表（随本地 Codex 缓存更新自动刷新）。
-- **白名单轻量隔离（`--ignore-user-config`）+ 静默日志摘要**：默认跳过桌面 `~/.codex/config.toml` 里的插件与 MCP（仅白名单透传顶层 `model`、`model_reasoning_effort`、`service_tier` 与 `[features].respect_system_proxy`）以降低 Codex 启动上下文开销；同时将过程日志落盘 `.log`、终端仅回传最终摘要（支持 `--no-isolate` / `CODEX_VERBOSE=1`）。
-- **精确会话绑定、老线程承接与双端项目共享**：通过 `--json` 结构化事件流精确绑定任务 `session_id`；内置 `list-projects` / `list-sessions`（只读检索 `~/.codex/state_5.sqlite`）、`show-session` 历史对话摘要提取、`resume`/`fork`、一键 `init-shared`（生成 `AGENTS.md` + `.agents/state.md` + `SessionStart` Hook，详见 [docs/SHARED_WORKSPACE.md](./docs/SHARED_WORKSPACE.md)），以及严格 `read-only` 审查、失败即中止的 `--worktree` 与安全清理命令 `cleanup-worktree`。
-- **结构化交付、自动遥测汇总与 `doctor` 一键体检**：支持 `--structured`（内置 `resources/report.schema.json`）约束 Codex 输出 6 字段结构化报告；每次执行结束后自动汇总耗时、Token 消耗（解析自 `*.events.jsonl`）及 `git status --short` / `git diff --stat`；内置 `run-codex doctor` 一键检查 CLI、登录态、本地缓存与插件同步状态。
-- **跨平台回归测试与 CI**：内置 Mock Codex CLI 回归测试套件（`tests/test-run-codex.sh` 与 `tests/test-run-codex.ps1`），在 GitHub Actions 上持续验证 **Ubuntu / macOS / Windows** 三平台行为。
+> 本项目为独立开源社区作品，与 Google、Antigravity 或 OpenAI 无官方关联或背书。安全边界与版本记录见 [SECURITY.md](./SECURITY.md) 和 [CHANGELOG.md](./CHANGELOG.md)。
 
 ---
 
-## 工作流时序图
+## 1. 为什么要在 Antigravity 里操作 Codex？
 
-```mermaid
-sequenceDiagram
-    actor User as 用户
-    participant Antigravity as Antigravity (管 Why & What)
-    participant Codex as Codex CLI (管 How & 现场自测)
+**Google Antigravity** 和 **OpenAI Codex** 各有明显长板，组合在一起才是完整闭环：
 
-    Note over User,Antigravity: 平时普通消息：Antigravity 自己直接执行（无需任何开关）
-    User->>Antigravity: 输入 "/codex + 开发/重构/修Bug需求"
-    opt 需求开放或有多种解法时
-        Antigravity-->>User: 用“人话”发散提供 2~3 个思路选项与防坑建议
-        User->>Antigravity: 敲定大方向
-    end
-    Antigravity->>Antigravity: 只读调研代码库，生成抓大放小的 implementation_plan.md
-    Antigravity-->>User: 展示带 [Proceed] 按钮的“人话”方案卡片并暂停等待
-    User->>Antigravity: 划词批注微调或点击 [Proceed] 拍板确认
-    Antigravity->>Codex: 调用 run-codex.sh / run-codex.ps1 execute 放权移交
-    Codex->>Codex: 自主工程设计 + 修改代码 + 现场跑通编译/Lint/单测闭环
-    Codex-->>Antigravity: 一次性交付验证通过的代码与技术摘要
-    Antigravity->>Antigravity: 独立复核 git diff 对齐产品本意与边界红线
-    alt 存在需求遗漏或边界偏差
-        Antigravity->>Codex: 调用 run-codex resume --last 精准打回微调（最多 3 轮）
-        Codex-->>Antigravity: 极速返修完成
-    end
-    Antigravity-->>User: 用“人话”汇总实现效果、可点击文件链接与验收情况
-```
+| 维度 | Google Antigravity | OpenAI Codex CLI | 通过 `/codex` 双脑合体 |
+| --- | --- | --- | --- |
+| **核心长板** | 发散探路、人话对齐需求、原生交互卡片（`ask_question` / `implementation_plan.md` + **Proceed** 门禁）、多模态审图 | 扎实的多文件工程实现、现场编译/Lint/单测自验证闭环 | **Antigravity 管 `Why & What` 与终审；Codex 管 `How` 与现场自测** |
+| **日常痛点** | 两个客户端之间来回切窗口、复制粘贴上下文非常割裂 | 缺少 Antigravity 原生方案卡片与交互式审批体验 | **留在 Antigravity 一个窗口里**，需要时敲 `/codex` 即可召唤 |
+| **桥接成本** | 重型 MCP Bridge 需要常驻后台进程，且常放开沙箱权限 | 独立 CLI 不会自动共享跨端项目状态 | **零 MCP 常驻服务、零逆向反代、默认安全沙箱** |
 
 ---
 
-## 环境要求
+## 2. 核心功能
 
+### 按需触发 · 1 轮秒弹点选卡片
+- **平时零侵入**：日常问答和小修小补依然 100% 由 Antigravity 原生完成。
+- **1 轮直出本地化选单**：通过极轻量仅对 `/codex` 生效的 `rules/AGENTS.md` 预载本机缓存，敲 `/codex` 第 1 轮直接弹出无冗余括号的 4 题选单（**Codex 项目 / 模型 / 中英对照思考深度 / 极速与标准速度**）。
+- **同一对话自动锁定**：首次选完后本对话自动锁定沿用，**后续消息免敲 `/codex`**；发 **`退出 /codex`** 随时切回纯 Antigravity。
+
+<p align="center">
+  <img src="./assets/codex-picker-preview.png" alt="/codex 1 轮秒弹点选卡片效果预览" width="96%" />
+</p>
+
+### 与 Codex 桌面端无缝接力（核心差异化）
+- **原生读取 Codex 项目与侧边栏真实对话名**：只读查询 `~/.codex/state_5.sqlite`（内置 WAL 锁 `immutable=1` 降级保护），自动把每个项目最近 6 条活跃对话预同步进 `SKILL.md`，选完项目后第 2 张「选择对话」卡片 1 轮直出。
+- **真正承接老对话上下文（`show-session` + `resume`）**：自动提取选中老对话的纯净历史给 Antigravity 了解背景，执行时默认原位 `resume --session <id>` 续写回 Codex 原对话。
+- **桌面端写锁安全征询**：遇到 Codex 桌面端占用线程锁（`already has an active writer`）时绝不擅自关软件，先弹窗征求你同意（同意则 `--quit-app-on-lock` 优雅关闭并原位续聊；不同意则无损 `fork`）。
+- **双端项目共享（`init-shared`）**：一键生成 `AGENTS.md`、`.agents/state.md` 与 `SessionStart` Hook，让独立 Codex 与 Antigravity 双向感知最近改动（详见 [docs/SHARED_WORKSPACE.md](./docs/SHARED_WORKSPACE.md)）。
+
+### 分级执行 · 安全沙箱 · 红队对抗式审查
+- **复杂门禁 + 轻量快车道**：跨文件开发与重构走 `implementation_plan.md` + **Proceed** 审批门禁；启停服务、跑测试、查日志等轻量操作自动走 **Fast Path**，通过 `--prompt` 1 轮直达、免写临时任务文件。
+- **严守沙箱边界**：写代码使用 `--approve-for-me`（`workspace-write`），绝不启用 `--dangerously-bypass-approvals-and-sandbox`；代码审查强制 `-s read-only`，内置 **`--adversarial` 红队对抗式审查**与 **`--base <branch>` 分支 Diff 审查**。
+- **隔离分支闭环**：`--worktree` 严格 fail-closed（不支持绝不降级写主目录），配套安全清理命令 `cleanup-worktree`。
+
+### 轻量隔离 · 自动遥测 · 三平台 CI 验证
+- **白名单隔离（`--ignore-user-config`）**：跳过桌面端重型插件与 MCP，仅透传顶层模型/推理强度/速度档位与代理开关（检测到自定义 `model_provider` 时自动回退完整配置）。
+- **静默摘要 + 耗时/Token/Diff 自动汇总**：过程事件流（`*.events.jsonl`）与日志（`*.log`）落盘，终端仅输出最终摘要、**本轮耗时、Token 消耗及 `git status --short` / `git diff --stat`**（支持 `--structured` 6 字段 JSON 报告）。
+- **一键体检与跨平台测试**：内置 `run-codex doctor` 一键核验 CLI、登录态、缓存与插件同步；三平台 GitHub Actions（**Ubuntu / macOS / Windows**）持续回归验证。
+
+---
+
+## 3. 一键安装与启动
+
+### 环境要求
 1. 已安装 **Google Antigravity**。
-2. 已安装并登录 **OpenAI Codex CLI**（支持 `npm install -g @openai/codex`、`brew install codex`，也自动兼容 macOS ChatGPT 桌面端自带的 `codex`）：
+2. 已安装并登录 **OpenAI Codex CLI**（支持 `npm install -g @openai/codex`、`brew install codex`，也自动兼容 macOS ChatGPT 桌面端自带 `codex`）：
    ```bash
    codex --version
    codex login status
    ```
-   若尚未登录，在终端执行一次 `codex login` 完成授权即可。
-
----
-
-## 安装方式（任选其一）
+   若尚未登录，在终端运行一次 `codex login` 即可。
 
 ### 方式一：命令行一键安装（推荐）
 
@@ -101,7 +95,7 @@ git clone https://github.com/19zbhy/antigravity-codex.git
 cd antigravity-codex
 ./install.sh --dry-run   # 可选：先预演将修改的文件路径
 ./install.sh
-# 如需彻底卸载：./install.sh --uninstall
+# 随时一键干净卸载：./install.sh --uninstall
 ```
 
 **Windows (PowerShell)：**
@@ -110,59 +104,149 @@ git clone https://github.com/19zbhy/antigravity-codex.git
 cd antigravity-codex
 .\install.ps1 -DryRun    # 可选：先预演将修改的文件路径
 .\install.ps1
-# 如需彻底卸载：.\install.ps1 -Uninstall
+# 随时一键干净卸载：.\install.ps1 -Uninstall
 ```
 
-安装脚本会自动完成：
-- 将插件复制到 `~/.gemini/config/plugins/codex-collaborator`
-- 自动将模板中的 `<USER_HOME>` 替换为你的真实绝对路径（确保 Antigravity `Always Allow` 命令前缀放行生效）
-- 赋予脚本可执行权限、检查语法并核验本机 `codex` CLI 登录状态
+安装完成后可跑一句一键体检确认环境全绿：
+```bash
+~/.gemini/config/plugins/codex-collaborator/skills/codex/scripts/run-codex.sh doctor
+```
 
-### 方式二：把安装文档直接拖给 Antigravity 自动安装（Agent-Native）
+### 方式二：拖进 Antigravity 自动安装（零终端）
 
-不想敲终端命令？直接将 [docs/INSTALL_WITH_ANTIGRAVITY.md](./docs/INSTALL_WITH_ANTIGRAVITY.md) 拖进 Antigravity 对话框，发送一句：
+直接把 [docs/INSTALL_WITH_ANTIGRAVITY.md](./docs/INSTALL_WITH_ANTIGRAVITY.md) 拖进 Antigravity 对话框，发送：
 
-> **「请严格按照这份文档，帮我在本机自动部署并验证这套 `/codex` 双脑协同插件」**
-
-Gemini 就会自动帮你检测环境、替换本机路径、写入全局插件并验证热加载生效。
+> **「请严格按照这份文档，帮我在本机自动部署并验证这套 `/codex` 协同插件」**
 
 ---
 
-## 使用指南
+## 4. 具体使用方法
 
-1. **日常问答 / 小修小补**：直接发消息，由 Antigravity 独立完成。
-2. **开启双脑协同**：在输入框敲 **`/codex 你的需求`**，一键选定 Codex 项目（或当前工作区）、新建/续接老对话、模型、思考深度与响应速度。
-3. **同一对话免重复输入**：首次选定后，本对话会自动锁定并沿用该配置——**后续消息无需再敲 `/codex`**，直接继续聊需求即可。
-4. **中途切换项目 / 会话 / 档位**：在同一对话内**再次输入 `/codex`**，即可重新弹出选择卡片切换配置。
-5. **在当前对话退出 `/codex`**：直接发送 **`退出 /codex`**（或「关闭协同，后面由你直接改」），即可在当前对话中解除锁定、切回纯 Antigravity 模式。（如需全局停用整个插件，可在 Antigravity 左侧栏 **自定义（Customizations）** 中关闭 `codex-collaborator`。）
-6. **审阅拍板与首次放行**：复杂改动会弹出 `implementation_plan.md` 方案卡片，满意后点击 **Proceed**（轻量运维/小改动自动走快车道直达）。首次运行 `run-codex.sh`（或 `run-codex.ps1`）弹出命令确认框时，勾选 **Always Allow（始终允许）**，后续即可全程无感自动跑完。
+```mermaid
+sequenceDiagram
+    actor User as 用户
+    participant Antigravity as Antigravity (管 Why & What)
+    participant Codex as Codex CLI (管 How & 现场自测)
+
+    Note over User,Antigravity: 日常普通消息：Antigravity 原生直接完成
+    User->>Antigravity: /codex 你的需求
+    Antigravity-->>User: 1 轮直出选单（项目 / 对话 / 模型 / 深度 / 速度）
+    User->>Antigravity: 确认选择（本对话自动锁定沿用）
+    alt 复杂开发或重构
+        Antigravity->>Antigravity: 只读调研 -> implementation_plan.md
+        Antigravity-->>User: 展示带 [Proceed] 按钮的方案卡片
+        User->>Antigravity: 点击 [Proceed] 拍板
+    else 轻量运维或小改动（Fast Path）
+        Note over Antigravity: 免写正式方案，直接 --prompt 1 轮直达
+    end
+    Antigravity->>Codex: 调用 run-codex execute / resume / review
+    Codex->>Codex: 自主编码 + 编译/Lint/单测现场验证
+    Codex-->>Antigravity: 最终摘要 + 耗时/Token + git diff --stat
+    Antigravity->>Antigravity: 独立终审（如有偏差可原位 resume 返修，最多 3 轮）
+    Antigravity-->>User: 用“人话”汇总结果、可点击文件链接与测试状态
+```
+
+### 高频场景速查
+
+| 你想做什么 | 在 Antigravity 里怎么说 |
+| --- | --- |
+| **开发新功能 / 跨文件重构** | `/codex 帮我重构鉴权模块并补齐单测` → 选项目与档位 → 审阅方案点 **Proceed** |
+| **接力 Codex 桌面端老对话** | `/codex` → 选 Codex 项目 → 点选已有对话名 → 自动承接历史上下文并原位续聊 |
+| **轻量操作快车道** | 已锁定 `/codex` 的对话里直接发「跑一下测试 / 重启本地服务」（免敲 `/codex`、免审批直达） |
+| **红队对抗式代码审查** | `/codex 对抗式审查当前分支相对 main 的改动`（强制 `read-only` + `--adversarial --base main`） |
+| **中途切换项目 / 模型** | 在同一对话里**再次输入 `/codex`** 重新弹出选择卡片 |
+| **当前对话退出 `/codex`** | 直接发 **`退出 /codex`**（或「关闭协同，后面由你直接改」）切回纯 Antigravity |
+
+> **首次放行提示**：第一次触发 `run-codex.sh`（或 `run-codex.ps1`）弹出命令确认框时，勾选 **Always Allow（始终允许）**，后续即可全程无感自动跑完。
 
 ---
 
-## 仓库目录结构
+## 5. 常见问题（FAQ）
 
+<details>
+<summary><strong>Q1：平时不用 <code>/codex</code> 的普通对话会变慢或被塞入很多上下文吗？</strong></summary>
+
+不会。普通对话依然 100% 由 Antigravity 原生处理。插件只在 `rules/AGENTS.md` 里预载了约 150 tokens 的极简选单快照，用于让 `/codex` 第 1 轮直出卡片；完整的 `SKILL.md` 与各项目最近对话列表只在你输入 `/codex` 时才按需加载。
+</details>
+
+<details>
+<summary><strong>Q2：同一个对话里需要每句都敲 <code>/codex</code> 吗？中途想关掉怎么办？</strong></summary>
+
+不需要。同一对话首次 `/codex` 选定项目、会话与档位后会自动锁定沿用，后续直接发普通消息即可。想换配置时再敲一次 `/codex`；想在本对话里切回纯 Antigravity（比如承接完 Codex 老对话历史后只让 Gemini 自己改），发一句 **`退出 /codex`** 即可。如需全局停用，在 Antigravity **自定义（Customizations）** 中关闭 `codex-collaborator` 即可。
+</details>
+
+<details>
+<summary><strong>Q3：续聊 Codex 老对话时，为什么偶尔会提示“正在被 Codex 桌面端占用”？</strong></summary>
+
+Codex 桌面端运行期间会对最近打开过的线程持有独占写锁（`already has an active writer`）。为了避免擅自关掉你正在用的桌面端，插件会先弹窗让你二选一：**同意优雅关闭 Codex 桌面端并原位续聊**（`--quit-app-on-lock`），或**不关闭桌面端、无损分叉（`fork`）继承全部历史继续**。
+</details>
+
+<details>
+<summary><strong>Q4：在 Antigravity 里续聊后，Codex 桌面端能看到更新吗？</strong></summary>
+
+能。原位 `resume` 会把新回合直接写回 Codex 原对话，且两边操作的是磁盘上同一份项目源码；配合 `init-shared` 生成的 `.agents/state.md`，切换回独立 Codex 时也能立刻感知最新进展。
+</details>
+
+<details>
+<summary><strong>Q5：为什么不做成一个常驻 MCP Server？</strong></summary>
+
+保持纯原生插件 + Shell/PowerShell 执行器，意味着**零后台常驻进程**、Windows 用户无需额外配置 Python/Node 运行环境、脚本行为透明可审计，并且 100% 走官方 `codex exec` 正门通道。
+</details>
+
+---
+
+## 6. 进阶命令与仓库结构
+
+<details>
+<summary><strong>展开查看 <code>run-codex</code> 子命令与完整目录树</strong></summary>
+
+### `run-codex.sh` / `run-codex.ps1` 全部子命令
+- `doctor` — 一键体检（CLI、登录态、支持参数、缓存、`state_5.sqlite`、`git` 与 `SKILL.md` 同步状态）
+- `list-options` / `sync-options` — 查看或刷新本机模型、推理强度、Codex 项目与最近对话快照
+- `list-projects` / `list-sessions` / `show-session` — 只读查询 Codex 桌面端项目列表与历史对话内容
+- `init-shared <ws> [--exclude-state]` — 初始化 `AGENTS.md`、`.agents/state.md` 与 `SessionStart` Hook
+- `execute` / `resume` / `fork` — 在 `workspace-write` 沙箱执行任务（支持 `--prompt`、`--worktree`、`--structured`、`--quit-app-on-lock`、`--no-isolate`、`--verbose`）
+- `review` — 严格 `read-only` 代码审查（支持 `--adversarial`、`--base <branch>`、`--structured`）
+- `cleanup-worktree <path> [--delete-branch] [--force]` — 安全清理临时 worktree 与已合并分支
+
+### 仓库目录结构
 ```text
 antigravity-codex/
-├── README.md                              # 英文主文档
-├── README.zh-CN.md                        # 中文文档
-├── LICENSE                                # MIT 开源协议
-├── install.sh                             # macOS / Linux 一键安装脚本
-├── install.ps1                            # Windows PowerShell 一键安装脚本
+├── README.md                                  # 英文主文档
+├── README.zh-CN.md                            # 中文主文档
+├── SECURITY.md                                # 沙箱与安全策略说明
+├── CHANGELOG.md                               # 版本更新日志
+├── LICENSE                                    # MIT 开源协议
+├── install.sh                                 # macOS / Linux 安装器（支持 --dry-run / --uninstall）
+├── install.ps1                                # Windows PowerShell 安装器（支持 -DryRun / -Uninstall）
 ├── assets/
-│   ├── logo.svg                           # 插件图标
-│   └── workflow-preview.png               # 四步闭环视觉演示图
+│   ├── logo.svg                               # 插件图标
+│   ├── workflow-preview.png                   # 工作流视觉横幅
+│   └── codex-picker-preview.png               # /codex 1 轮选单效果预览图
 ├── docs/
-│   └── INSTALL_WITH_ANTIGRAVITY.md        # 拖入 Antigravity 自动部署 SOP
-└── plugin/                                # 干净的插件模板（无硬编码个人路径）
-    ├── plugin.json
-    ├── README.md
-    ├── assets/logo.svg
-    └── skills/codex/
-        ├── SKILL.md                       # /codex 协同技能定义
-        └── scripts/
-            ├── run-codex.sh               # macOS / Linux 执行器（兼容 Bash 3.2）
-            └── run-codex.ps1              # Windows PowerShell 执行器
+│   ├── INSTALL_WITH_ANTIGRAVITY.md            # 拖入 Antigravity 自动部署指南
+│   └── SHARED_WORKSPACE.md                    # 双端共享工作区详细说明
+├── plugin/                                    # 干净的插件模板（无任何个人路径）
+│   ├── plugin.json
+│   ├── README.md
+│   ├── assets/logo.svg
+│   ├── rules/AGENTS.md                        # 极轻量 /codex 1 轮选单预热规则
+│   └── skills/codex/
+│       ├── SKILL.md                           # /codex 协同技能定义
+│       ├── resources/
+│       │   ├── implementation-task.md
+│       │   ├── bugfix-task.md
+│       │   ├── review-task.md
+│       │   ├── adversarial-review-task.md
+│       │   └── report.schema.json
+│       └── scripts/
+│           ├── run-codex.sh                   # macOS / Linux 执行器（兼容 Bash 3.2）
+│           └── run-codex.ps1                  # Windows PowerShell 执行器
+└── tests/
+    ├── test-run-codex.sh                      # 111 项 Bash 回归测试套件
+    └── test-run-codex.ps1                     # Windows PowerShell 回归测试套件
 ```
+</details>
 
 ---
 
@@ -178,8 +262,6 @@ antigravity-codex/
 - [crazyzhang277/codex-antigravity-bridge](https://github.com/crazyzhang277/codex-antigravity-bridge) — 安装脚本预演模式（`--dry-run` / `-DryRun`）与一键干净卸载思路。
 - [IlleJiViN/codex-antigravity-subagent](https://github.com/IlleJiViN/codex-antigravity-subagent) — 独立社区项目合规声明与 `SECURITY.md` / `CHANGELOG.md` 规范。
 - [basicmachines-co/basic-memory](https://github.com/basicmachines-co/basic-memory) — [docs/SHARED_WORKSPACE.md](./docs/SHARED_WORKSPACE.md) 中推荐的可选跨端长期记忆 MCP 方案。
-
----
 
 ## 开源协议
 
