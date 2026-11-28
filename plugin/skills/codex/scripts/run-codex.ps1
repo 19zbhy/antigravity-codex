@@ -414,12 +414,31 @@ if ($Mode -eq "cleanup-worktree") {
     $mainRepo = Split-Path -Parent ((Resolve-Path -LiteralPath $commonGitFull).Path)
     $wtBranch = (@(& git -C $wtReal symbolic-ref --short HEAD 2>$null)) -join ""
     if ($LASTEXITCODE -ne 0) { $wtBranch = "" }
+    $wtHead = (@(& git -C $wtReal rev-parse --verify HEAD 2>$null)) -join ""
+    if ($LASTEXITCODE -ne 0) { $wtHead = "" }
 
     if (-not $Force) {
       $dirty = (@(& git -C $wtReal status --porcelain 2>$null)) -join ""
       if (-not [string]::IsNullOrWhiteSpace($dirty)) {
         [Console]::Error.WriteLine("ERROR: Worktree has uncommitted changes. Commit/stash them first or pass -Force: $wtReal")
         exit 2
+      }
+      if (-not [string]::IsNullOrWhiteSpace($wtHead)) {
+        if ([string]::IsNullOrWhiteSpace($wtBranch)) {
+          $reachableRefs = @(& git -C $mainRepo for-each-ref --contains $wtHead --format="%(refname)" refs/heads refs/tags 2>$null) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+          if ($reachableRefs.Count -eq 0) {
+            $shortHead = (@(& git -C $wtReal rev-parse --short HEAD 2>$null)) -join ""
+            if ([string]::IsNullOrWhiteSpace($shortHead)) { $shortHead = $wtHead }
+            [Console]::Error.WriteLine("ERROR: Detached worktree HEAD ($shortHead) has commits not reachable from any branch or tag. Create a branch to preserve them or pass -Force: $wtReal")
+            exit 2
+          }
+        } elseif ($DeleteBranch) {
+          $otherRefs = @(& git -C $mainRepo for-each-ref --contains $wtHead --format="%(refname)" refs/heads refs/tags 2>$null) | Where-Object { (-not [string]::IsNullOrWhiteSpace($_)) -and ($_ -ne "refs/heads/$wtBranch") }
+          if ($otherRefs.Count -eq 0) {
+            [Console]::Error.WriteLine("ERROR: Branch '$wtBranch' has commits not reachable from any other branch or tag. Merge it first or pass -Force: $wtReal")
+            exit 2
+          }
+        }
       }
     }
 
@@ -947,12 +966,13 @@ try {
       [Console]::Error.WriteLine("ERROR: fork requires a source session ID (pass -Session <id> or provide an output path with an existing .session_id file).")
       exit 2
     }
-    foreach ($f in @($OutputFile, $eventsFile)) {
+    $forkSourceSessionId = $Session
+    foreach ($f in @($OutputFile, $eventsFile, $sessionFile)) {
       if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
     }
-    Write-Output "==> [Codex Engineer] Forking Codex session '$Session' in: $WorkspaceDir"
+    Write-Output "==> [Codex Engineer] Forking Codex session '$forkSourceSessionId' in: $WorkspaceDir"
     Write-Output "==> [Codex Engineer] Fork prompt file: $InputFile"
-    $argsList = @("exec") + $approvalFlags + @("--color", "never", "fork") + $jsonFlags + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @($Session, "-")
+    $argsList = @("exec") + $approvalFlags + @("--color", "never", "fork") + $jsonFlags + $isolateFlags + $overrideFlags + $gitFlags + $outFlags + @($forkSourceSessionId, "-")
   } else {
     if ((-not [string]::IsNullOrWhiteSpace($Session)) -and $Last) {
       [Console]::Error.WriteLine("ERROR: -Session and -Last are mutually exclusive.")
@@ -990,20 +1010,36 @@ try {
     }
   }
 
+  function Release-CodexAppLock {
+    if (-not [string]::IsNullOrWhiteSpace($env:CODEX_RELEASE_LOCK_CMD)) {
+      Invoke-Expression $env:CODEX_RELEASE_LOCK_CMD
+      return
+    }
+    $targetProc = $null
+    try {
+      $appServers = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match '(^|[\\/])codex(\.exe)?(\s|$).*app-server' })
+      foreach ($p in $appServers) {
+        if ($p.CommandLine -match 'Codex') { $targetProc = "Codex"; break }
+        if ($p.CommandLine -match 'ChatGPT') { $targetProc = "ChatGPT"; break }
+      }
+      if (-not $targetProc -and $appServers.Count -eq 0) {
+        [Console]::Error.WriteLine("==> [Codex Engineer] No active codex app-server process detected; skipping app quit.")
+        return
+      }
+    } catch {}
+    if (-not $targetProc) { $targetProc = "Codex" }
+    [Console]::Error.WriteLine("==> [Codex Engineer] Closing identified lock holder app: $targetProc")
+    Get-Process -Name $targetProc -ErrorAction SilentlyContinue | ForEach-Object {
+      try { $_.CloseMainWindow() | Out-Null } catch {}
+    }
+    Start-Sleep -Seconds 2
+  }
+
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
   $allowQuit = $QuitAppOnLock -or ($env:CODEX_QUIT_APP_ON_LOCK -eq "1")
   if (($Mode -eq "resume") -and $allowQuit) {
     [Console]::Error.WriteLine("==> [Codex Engineer] Closing Codex Desktop App gracefully before resuming...")
-    if (-not [string]::IsNullOrWhiteSpace($env:CODEX_RELEASE_LOCK_CMD)) {
-      Invoke-Expression $env:CODEX_RELEASE_LOCK_CMD
-    } else {
-      foreach ($procName in @("Codex", "ChatGPT")) {
-        Get-Process -Name $procName -ErrorAction SilentlyContinue | ForEach-Object {
-          try { $_.CloseMainWindow() | Out-Null } catch {}
-        }
-      }
-      Start-Sleep -Seconds 2
-    }
+    Release-CodexAppLock
   }
   $attempt = 1
   while ($true) {
@@ -1042,16 +1078,7 @@ try {
         $allowQuit = $QuitAppOnLock -or ($env:CODEX_QUIT_APP_ON_LOCK -eq "1")
         if ($allowQuit) {
           [Console]::Error.WriteLine("==> [Codex Engineer] Thread is locked by Codex Desktop App ('already has an active writer'). Closing Codex App gracefully and retrying resume...")
-          if (-not [string]::IsNullOrWhiteSpace($env:CODEX_RELEASE_LOCK_CMD)) {
-            Invoke-Expression $env:CODEX_RELEASE_LOCK_CMD
-          } else {
-            foreach ($procName in @("Codex", "ChatGPT")) {
-              Get-Process -Name $procName -ErrorAction SilentlyContinue | ForEach-Object {
-                try { $_.CloseMainWindow() | Out-Null } catch {}
-              }
-            }
-            Start-Sleep -Seconds 2
-          }
+          Release-CodexAppLock
           $attempt = 2
           continue
         } else {
@@ -1064,7 +1091,13 @@ try {
   $sw.Stop()
   $elapsedS = [int][Math]::Floor($sw.Elapsed.TotalSeconds)
 
-  if (-not [string]::IsNullOrWhiteSpace($capturedSid)) {
+  if ($Mode -eq "fork") {
+    if ((-not [string]::IsNullOrWhiteSpace($capturedSid)) -and ($capturedSid -ne $forkSourceSessionId)) {
+      [System.IO.File]::WriteAllText($sessionFile, "$capturedSid`n", [System.Text.UTF8Encoding]::new($false))
+    } else {
+      if (Test-Path -LiteralPath $sessionFile) { Remove-Item -LiteralPath $sessionFile -Force -ErrorAction SilentlyContinue }
+    }
+  } elseif (-not [string]::IsNullOrWhiteSpace($capturedSid)) {
     [System.IO.File]::WriteAllText($sessionFile, "$capturedSid`n", [System.Text.UTF8Encoding]::new($false))
   }
 
@@ -1083,6 +1116,12 @@ try {
     }
     [Console]::Error.WriteLine("Hint: If this is an authentication error, run 'codex login' in your terminal once to sign in.")
     exit $exitCode
+  }
+
+  if (($Mode -eq "fork") -and ([string]::IsNullOrWhiteSpace($capturedSid) -or ($capturedSid -eq $forkSourceSessionId))) {
+    $runFailed = $true
+    [Console]::Error.WriteLine("ERROR: fork completed without a distinct new session ID (source: '$forkSourceSessionId'). Cleared stale session file to prevent accidentally resuming the source thread.")
+    exit 1
   }
 
   if (-not [string]::IsNullOrWhiteSpace($capturedSid)) {

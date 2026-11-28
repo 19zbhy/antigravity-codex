@@ -554,6 +554,87 @@ UNINST_OUT="$(TARGET_HOME="$FAKE_HOME" "$INSTALLER" --uninstall)"
 assert_contains "install.sh --uninstall confirms removal" "Uninstalled antigravity-codex" "$UNINST_OUT"
 assert_eq "install.sh --uninstall removed plugin dir" "0" "$( [[ -d "${FAKE_HOME}/.gemini/config/plugins/codex-collaborator" ]] && echo 1 || echo 0 )"
 
+echo "=== Test 11: Safety boundary fault-injection tests (detached commit, fork ID, targeted lock release) ==="
+# 11a. Detached worktree with unique unreferenced commit must be refused without --force
+WT_DETACHED="${TMP_ROOT}/wt_detached"
+git -C "$WT_REPO" worktree add --detach "$WT_DETACHED" HEAD >/dev/null 2>&1
+echo "unique detached work" > "${WT_DETACHED}/detached.txt"
+git -C "$WT_DETACHED" add detached.txt
+git -C "$WT_DETACHED" commit -m "detached unique commit" >/dev/null 2>&1
+set +e
+DETACHED_ERR="$(CODEX_HOME="$CODEX_HOME_1" "$RUNNER" cleanup-worktree "$WT_DETACHED" 2>&1)"
+DETACHED_RC=$?
+set -e
+assert_eq "cleanup-worktree refuses detached worktree with unreferenced commit" "2" "$DETACHED_RC"
+assert_contains "detached worktree error mentions not reachable" "not reachable" "$DETACHED_ERR"
+assert_eq "detached worktree directory preserved on refusal" "1" "$( [[ -d "$WT_DETACHED" ]] && echo 1 || echo 0 )"
+
+# With --force, detached worktree cleanup succeeds
+DETACHED_FORCE_OUT="$(CODEX_HOME="$CODEX_HOME_1" "$RUNNER" cleanup-worktree "$WT_DETACHED" --force 2>&1)"
+assert_contains "cleanup-worktree --force removes detached worktree" "Removed worktree" "$DETACHED_FORCE_OUT"
+assert_eq "detached worktree directory removed with --force" "0" "$( [[ -d "$WT_DETACHED" ]] && echo 1 || echo 0 )"
+
+# 11b. --delete-branch with unmerged branch must fail BEFORE removing worktree directory
+WT_UNMERGED="${TMP_ROOT}/wt_unmerged"
+git -C "$WT_REPO" worktree add -b "codex/unmerged-wt" "$WT_UNMERGED" >/dev/null 2>&1
+echo "unmerged commit" > "${WT_UNMERGED}/unmerged.txt"
+git -C "$WT_UNMERGED" add unmerged.txt
+git -C "$WT_UNMERGED" commit -m "unmerged feature" >/dev/null 2>&1
+set +e
+UNMERGED_ERR="$(CODEX_HOME="$CODEX_HOME_1" "$RUNNER" cleanup-worktree "$WT_UNMERGED" --delete-branch 2>&1)"
+UNMERGED_RC=$?
+set -e
+assert_eq "cleanup-worktree --delete-branch refuses unmerged branch" "2" "$UNMERGED_RC"
+assert_contains "unmerged branch error mentions Merge it first" "Merge it first" "$UNMERGED_ERR"
+assert_eq "unmerged worktree directory preserved before removal" "1" "$( [[ -d "$WT_UNMERGED" ]] && echo 1 || echo 0 )"
+CODEX_HOME="$CODEX_HOME_1" "$RUNNER" cleanup-worktree "$WT_UNMERGED" --delete-branch --force >/dev/null 2>&1
+
+# 11c. fork without a distinct new session ID clears stale .session_id and fails closed
+FORK_FAULT_OUT="${TMP_ROOT}/fork_fault/last.md"
+FORK_FAULT_SID="${FORK_FAULT_OUT%.*}.session_id"
+mkdir -p "$(dirname "$FORK_FAULT_OUT")"
+printf '%s\n' "source-sess-AAA" > "$FORK_FAULT_SID"
+set +e
+FORK_NO_ID_OUT="$(MOCK_NO_SESSION=1 CODEX_HOME="$CODEX_HOME_1" "$RUNNER" fork "$SHARED_WS" "$PLAN_FILE" "$FORK_FAULT_OUT" 2>&1)"
+FORK_NO_ID_RC=$?
+set -e
+assert_eq "fork without new session ID exits non-zero" "1" "$FORK_NO_ID_RC"
+assert_contains "fork without new session ID reports clear error" "without a distinct new session ID" "$FORK_NO_ID_OUT"
+assert_eq "stale source .session_id deleted when fork returns no new ID" "0" "$( [[ -f "$FORK_FAULT_SID" ]] && echo 1 || echo 0 )"
+
+# Same-ID fork must also fail closed and clear stale .session_id
+printf '%s\n' "source-sess-AAA" > "$FORK_FAULT_SID"
+set +e
+FORK_SAME_ID_OUT="$(MOCK_SESSION_ID="source-sess-AAA" CODEX_HOME="$CODEX_HOME_1" "$RUNNER" fork "$SHARED_WS" "$PLAN_FILE" "$FORK_FAULT_OUT" 2>&1)"
+FORK_SAME_ID_RC=$?
+set -e
+assert_eq "fork returning identical source ID exits non-zero" "1" "$FORK_SAME_ID_RC"
+assert_eq "stale source .session_id deleted when fork returns identical ID" "0" "$( [[ -f "$FORK_FAULT_SID" ]] && echo 1 || echo 0 )"
+
+# 11d. macOS targeted lock release only closes the actual lock-holding app (not both Codex & ChatGPT)
+if [[ "$(uname -s 2>/dev/null || echo unknown)" == "Darwin" ]]; then
+  STUB_BIN="${TMP_ROOT}/stub_lock_bin"
+  OSA_LOG="${TMP_ROOT}/osascript.log"
+  mkdir -p "$STUB_BIN"
+  cat > "${STUB_BIN}/ps" <<EOF
+#!/usr/bin/env bash
+if [[ ! -s "$OSA_LOG" ]]; then
+  echo "/Applications/Codex.app/Contents/Resources/codex app-server"
+fi
+EOF
+  cat > "${STUB_BIN}/osascript" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$OSA_LOG"
+exit 0
+EOF
+  chmod +x "${STUB_BIN}/ps" "${STUB_BIN}/osascript"
+  : > "$OSA_LOG"
+  PATH="${STUB_BIN}:${PATH}" CODEX_HOME="$CODEX_HOME_1" "$RUNNER" resume "$SHARED_WS" "$PLAN_FILE" "${TMP_ROOT}/stub_lock/last.md" --session "sess-stub-1" --quit-app-on-lock >/dev/null 2>&1
+  OSA_CALLED="$(cat "$OSA_LOG")"
+  assert_contains "targeted lock release quits Codex when Codex.app holds app-server" 'tell application "Codex" to quit' "$OSA_CALLED"
+  assert_not_contains "targeted lock release does NOT quit ChatGPT when Codex.app holds app-server" 'ChatGPT' "$OSA_CALLED"
+fi
+
 echo ""
 echo "Summary: ${PASS_COUNT} passed, ${FAIL_COUNT} failed."
 if [[ "$FAIL_COUNT" -ne 0 ]]; then

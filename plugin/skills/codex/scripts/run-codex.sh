@@ -599,12 +599,30 @@ if [[ "$MODE" == "cleanup-worktree" ]]; then
   fi
   MAIN_REPO="$(dirname "$COMMON_GIT_DIR")"
   WT_BRANCH="$(git -C "$WT_REAL" symbolic-ref --short HEAD 2>/dev/null || true)"
+  WT_HEAD="$(git -C "$WT_REAL" rev-parse --verify HEAD 2>/dev/null || true)"
 
   if [[ "$FORCE_CLEANUP" != "1" ]]; then
     DIRTY_STATUS="$(git -C "$WT_REAL" status --porcelain 2>/dev/null || true)"
     if [[ -n "$DIRTY_STATUS" ]]; then
       echo "ERROR: Worktree has uncommitted changes. Commit/stash them first or pass --force: $WT_REAL" >&2
       exit 2
+    fi
+
+    if [[ -n "$WT_HEAD" ]]; then
+      if [[ -z "$WT_BRANCH" ]]; then
+        REACHABLE_REFS="$(git -C "$MAIN_REPO" for-each-ref --contains "$WT_HEAD" --format='%(refname)' refs/heads refs/tags 2>/dev/null || true)"
+        if [[ -z "$REACHABLE_REFS" ]]; then
+          SHORT_HEAD="$(git -C "$WT_REAL" rev-parse --short HEAD 2>/dev/null || printf '%s' "$WT_HEAD")"
+          echo "ERROR: Detached worktree HEAD (${SHORT_HEAD}) has commits not reachable from any branch or tag. Create a branch to preserve them or pass --force: $WT_REAL" >&2
+          exit 2
+        fi
+      elif [[ "$DELETE_BRANCH" == "1" ]]; then
+        OTHER_REFS="$(git -C "$MAIN_REPO" for-each-ref --contains "$WT_HEAD" --format='%(refname)' refs/heads refs/tags 2>/dev/null | grep -v "^refs/heads/${WT_BRANCH}$" || true)"
+        if [[ -z "$OTHER_REFS" ]]; then
+          echo "ERROR: Branch '${WT_BRANCH}' has commits not reachable from any other branch or tag. Merge it first or pass --force: $WT_REAL" >&2
+          exit 2
+        fi
+      fi
     fi
   fi
 
@@ -1268,11 +1286,28 @@ release_codex_app_lock() {
   fi
   case "$(uname -s 2>/dev/null || echo unknown)" in
     Darwin)
-      osascript -e 'if application "Codex" is running then tell application "Codex" to quit' >/dev/null 2>&1 || true
-      osascript -e 'if application "ChatGPT" is running then tell application "ChatGPT" to quit' >/dev/null 2>&1 || true
+      local app_server_procs target_app=""
+      app_server_procs="$(ps -eo args= 2>/dev/null | grep -E '(^|/)codex([[:space:]]|$).*app-server' | grep -v grep || true)"
+      if printf '%s\n' "$app_server_procs" | grep -q 'Codex\.app'; then
+        target_app="Codex"
+      elif printf '%s\n' "$app_server_procs" | grep -q 'ChatGPT\.app'; then
+        target_app="ChatGPT"
+      fi
+
+      if [[ -n "$target_app" ]]; then
+        echo "==> [Codex Engineer] Identified lock holder app: ${target_app}" >&2
+        osascript -e "if application \"${target_app}\" is running then tell application \"${target_app}\" to quit" >/dev/null 2>&1 || true
+      elif [[ -n "$app_server_procs" ]]; then
+        echo "==> [Codex Engineer] Lock holder app could not be uniquely identified; refusing to blindly quit ChatGPT. Only closing Codex if running." >&2
+        osascript -e 'if application "Codex" is running then tell application "Codex" to quit' >/dev/null 2>&1 || true
+      else
+        echo "==> [Codex Engineer] No active codex app-server process detected; skipping app quit." >&2
+        return 0
+      fi
+
       local waited=0
       while [[ "$waited" -lt 12 ]]; do
-        if ! pgrep -f 'codex.*app-server' >/dev/null 2>&1; then
+        if ! ps -eo args= 2>/dev/null | grep -E '(^|/)codex([[:space:]]|$).*app-server' | grep -qv grep; then
           break
         fi
         sleep 0.5
@@ -1280,7 +1315,7 @@ release_codex_app_lock() {
       done
       ;;
     Linux)
-      pkill -TERM -f 'codex.*app-server' >/dev/null 2>&1 || true
+      pkill -u "$(id -u)" -TERM -f '(^|/)codex([[:space:]]|$).*app-server' >/dev/null 2>&1 || true
       sleep 1
       ;;
   esac
@@ -1342,7 +1377,13 @@ run_codex_cmd() {
   else
     captured_sid="$(extract_session_id_from_text "$LOG_FILE" || true)"
   fi
-  if [[ -n "$captured_sid" ]]; then
+  if [[ "$MODE" == "fork" ]]; then
+    if [[ -n "$captured_sid" ]] && [[ "$captured_sid" != "${FORK_SOURCE_SESSION_ID:-}" ]]; then
+      printf '%s\n' "$captured_sid" > "$SESSION_FILE"
+    else
+      rm -f "$SESSION_FILE"
+    fi
+  elif [[ -n "$captured_sid" ]]; then
     printf '%s\n' "$captured_sid" > "$SESSION_FILE"
   fi
 
@@ -1366,6 +1407,13 @@ run_codex_cmd() {
     fi
     echo "Hint: If this is an authentication error, run 'codex login' in your terminal once to sign in." >&2
     exit "$exit_code"
+  fi
+
+  if [[ "$MODE" == "fork" ]]; then
+    if [[ -z "$captured_sid" ]] || [[ "$captured_sid" == "${FORK_SOURCE_SESSION_ID:-}" ]]; then
+      echo "ERROR: fork completed without a distinct new session ID (source: '${FORK_SOURCE_SESSION_ID:-unknown}'). Cleared stale session file to prevent accidentally resuming the source thread." >&2
+      exit 1
+    fi
   fi
 
   if [[ -n "$captured_sid" ]]; then
@@ -1528,9 +1576,10 @@ case "$MODE" in
       echo "ERROR: fork requires a source session ID (pass --session <id> or provide an output path with an existing .session_id file)." >&2
       exit 2
     fi
-    # Reset stale summary/events AFTER source session ID is validated
-    rm -f "$OUTPUT_FILE" "$EVENTS_FILE"
-    echo "==> [Codex Engineer] Forking Codex session '${SESSION_ID}' in: $WORKSPACE_DIR"
+    FORK_SOURCE_SESSION_ID="$SESSION_ID"
+    # Clear stale summary, events, AND source .session_id AFTER reading source ID so a failed/unidentified fork never leaves a pointer back to the source thread
+    rm -f "$OUTPUT_FILE" "$EVENTS_FILE" "$SESSION_FILE"
+    echo "==> [Codex Engineer] Forking Codex session '${FORK_SOURCE_SESSION_ID}' in: $WORKSPACE_DIR"
     echo "==> [Codex Engineer] Fork prompt file: $INPUT_FILE"
     run_codex_cmd codex exec \
       "${APPROVAL_FLAGS[@]}" \
@@ -1541,7 +1590,7 @@ case "$MODE" in
       ${OVERRIDE_FLAGS[@]+"${OVERRIDE_FLAGS[@]}"} \
       ${GIT_FLAGS[@]+"${GIT_FLAGS[@]}"} \
       ${OUT_FLAGS[@]+"${OUT_FLAGS[@]}"} \
-      "$SESSION_ID" \
+      "$FORK_SOURCE_SESSION_ID" \
       -
     ;;
 

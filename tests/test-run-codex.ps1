@@ -332,6 +332,26 @@ respect_system_proxy = true
   Assert-Contains "install.ps1 -Uninstall confirms removal" "Uninstalled antigravity-codex" $uninstOut
   Assert-Eq "install.ps1 -Uninstall removed plugin dir" "False" "$(Test-Path -LiteralPath (Join-Path $fakeHome '.gemini\config\plugins\codex-collaborator'))"
 
+  Write-Output "=== Test 9: Safety boundary fault-injection tests (detached worktree & unmerged branch) ==="
+  $wtDetached = Join-Path $tmpRoot "wt_detached"
+  $prevEap9 = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  & git -C $wtRepo worktree add --detach $wtDetached HEAD *> $null
+  Set-Content -LiteralPath (Join-Path $wtDetached "detached.txt") -Value "unique detached work" -Encoding UTF8
+  & git -C $wtDetached add detached.txt *> $null
+  & git -C $wtDetached commit -m "detached unique commit" *> $null
+  $ErrorActionPreference = $prevEap9
+
+  $detOut = (& pwsh -NoProfile -File $runner cleanup-worktree $wtDetached 2>&1) -join "`n"
+  $detRc = $LASTEXITCODE
+  Assert-Eq "cleanup-worktree refuses detached worktree with unreferenced commit" "2" "$detRc"
+  Assert-Contains "detached worktree error mentions not reachable" "not reachable" $detOut
+  Assert-Eq "detached worktree directory preserved on refusal" "True" "$(Test-Path -LiteralPath $wtDetached)"
+
+  $detForceOut = (& pwsh -NoProfile -File $runner cleanup-worktree $wtDetached -Force 2>&1) -join "`n"
+  Assert-Contains "cleanup-worktree -Force removes detached worktree" "Removed worktree" $detForceOut
+  Assert-Eq "detached worktree directory removed with -Force" "False" "$(Test-Path -LiteralPath $wtDetached)"
+
   $env:Path = $origPath
   Write-Output ""
   Write-Output "Summary: $script:pass passed, $script:fail failed."
