@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/logo.svg" width="112" height="112" alt="antigravity-codex logo" />
+  <img src="../assets/logo.svg" width="112" height="112" alt="antigravity-codex logo" />
 </p>
 
 <h1 align="center">antigravity-codex</h1>
@@ -13,21 +13,21 @@
 </p>
 
 <p align="center">
-  <a href="./README.md">English</a> | 简体中文 | <a href="https://19zbhy.github.io/antigravity-codex/">项目官网首页</a>
+  <a href="../README.md">English</a> | 简体中文 | <a href="https://19zbhy.github.io/antigravity-codex/">项目官网首页</a>
 </p>
 
 <p align="center">
   <a href="https://github.com/19zbhy/antigravity-codex/actions/workflows/ci.yml">
     <img src="https://github.com/19zbhy/antigravity-codex/actions/workflows/ci.yml/badge.svg" alt="CI" />
   </a>
-  <a href="./LICENSE">
+  <a href="../LICENSE">
     <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License" />
   </a>
   <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg" alt="Platforms" />
 </p>
 
 <p align="center">
-  <img src="./assets/workflow-preview.png" alt="Antigravity x Codex 工作流示意图" width="100%" />
+  <img src="../assets/workflow-preview.png" alt="Antigravity x Codex 工作流示意图" width="100%" />
 </p>
 
 > [!NOTE]
@@ -55,14 +55,14 @@
 - **同一对话自动锁定**：首次选完后本对话自动锁定沿用，**后续消息免敲 `/codex`**；发 **`退出 /codex`** 随时切回纯 Antigravity。
 
 <p align="center">
-  <img src="./assets/codex-picker-preview.png" alt="/codex 1 轮秒弹点选卡片效果预览" width="96%" />
+  <img src="../assets/codex-picker-preview.png" alt="/codex 1 轮秒弹点选卡片效果预览" width="96%" />
 </p>
 
 ### 与 Codex 桌面端无缝接力（核心差异化）
 - **原生读取 Codex 项目与侧边栏真实对话名**：只读查询 `~/.codex/state_5.sqlite`（内置 WAL 锁 `immutable=1` 降级保护），自动把每个项目最近 6 条活跃对话预同步进 `SKILL.md`，选完项目后第 2 张「选择对话」卡片 1 轮直出。
 - **真正承接老对话上下文（`show-session` + `resume`）**：自动提取选中老对话的纯净历史给 Antigravity 了解背景，执行时默认原位 `resume --session <id>` 续写回 Codex 原对话。
 - **桌面端写锁安全征询**：遇到 Codex 桌面端占用线程锁（`already has an active writer`）时绝不擅自关软件，先弹窗征求你同意（同意则 `--quit-app-on-lock` 优雅关闭并原位续聊；不同意则无损 `fork`）。
-- **双端项目共享（`init-shared`）**：一键生成 `AGENTS.md`、`.agents/state.md` 与 `SessionStart` Hook，让独立 Codex 与 Antigravity 双向感知最近改动（详见 [docs/SHARED_WORKSPACE.md](./docs/SHARED_WORKSPACE.md)）。
+- **双端项目共享（`init-shared`）**：一键生成 `AGENTS.md`、`.agents/state.md` 与 `SessionStart` Hook，让独立 Codex 与 Antigravity 双向感知最近改动（详见 [SHARED_WORKSPACE.md](./SHARED_WORKSPACE.md)）。
 
 ### 分级执行 · 安全沙箱 · 红队对抗式审查
 - **复杂门禁 + 轻量快车道**：跨文件开发与重构走 `implementation_plan.md` + **Proceed** 审批门禁；启停服务、跑测试、查日志等轻量操作自动走 **Fast Path**，通过 `--prompt` 1 轮直达、免写临时任务文件。
@@ -207,9 +207,6 @@ Codex 桌面端运行期间会对最近打开过的线程持有独占写锁（`a
 ```text
 antigravity-codex/
 ├── README.md                                  # 英文主文档
-├── README.zh-CN.md                            # 中文主文档
-├── SECURITY.md                                # 沙箱与安全策略说明
-├── CHANGELOG.md                               # 版本更新日志
 ├── LICENSE                                    # MIT 开源协议
 ├── install.sh                                 # macOS / Linux 安装器（支持 --dry-run / --uninstall）
 ├── install.ps1                                # Windows PowerShell 安装器（支持 -DryRun / -Uninstall）
@@ -218,6 +215,10 @@ antigravity-codex/
 │   ├── workflow-preview.png                   # 工作流视觉横幅
 │   └── codex-picker-preview.png               # /codex 1 轮选单效果预览图
 ├── docs/
+│   ├── index.html                             # GitHub Pages 官网首页
+│   ├── README.zh-CN.md                        # 中文主文档
+│   ├── SECURITY.md                            # 沙箱与安全策略说明
+│   ├── CHANGELOG.md                           # 版本更新日志
 │   ├── INSTALL_WITH_ANTIGRAVITY.md            # 拖入 Antigravity 自动部署指南
 │   └── SHARED_WORKSPACE.md                    # 双端共享工作区详细说明
 ├── plugin/                                    # 干净的插件模板（无任何个人路径）
@@ -255,8 +256,8 @@ antigravity-codex/
 - [vacuityv/codex-plugin-antigravity](https://github.com/vacuityv/codex-plugin-antigravity) — 红队对抗式审查（`--adversarial`）与 `--base <branch>` 分支 Diff 审查思路。
 - [crazyzhang277/codex-antigravity-bridge](https://github.com/crazyzhang277/codex-antigravity-bridge) — 安装脚本预演模式（`--dry-run` / `-DryRun`）与一键干净卸载思路。
 - [IlleJiViN/codex-antigravity-subagent](https://github.com/IlleJiViN/codex-antigravity-subagent) — 独立社区项目合规声明与 `SECURITY.md` / `CHANGELOG.md` 规范。
-- [basicmachines-co/basic-memory](https://github.com/basicmachines-co/basic-memory) — [docs/SHARED_WORKSPACE.md](./docs/SHARED_WORKSPACE.md) 中推荐的可选跨端长期记忆 MCP 方案。
+- [basicmachines-co/basic-memory](https://github.com/basicmachines-co/basic-memory) — [SHARED_WORKSPACE.md](./SHARED_WORKSPACE.md) 中推荐的可选跨端长期记忆 MCP 方案。
 
 ## 开源协议
 
-[MIT](./LICENSE)
+[MIT](../LICENSE)

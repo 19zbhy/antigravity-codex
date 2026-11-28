@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  English | <a href="./README.zh-CN.md">简体中文</a> | <a href="https://19zbhy.github.io/antigravity-codex/">Project Homepage</a>
+  English | <a href="./docs/README.zh-CN.md">简体中文</a> | <a href="https://19zbhy.github.io/antigravity-codex/">Project Homepage</a>
 </p>
 
 <p align="center">
@@ -31,7 +31,7 @@
 </p>
 
 > [!NOTE]
-> Independent community project. Not affiliated with or endorsed by Google, Antigravity, or OpenAI. See [SECURITY.md](./SECURITY.md) and [CHANGELOG.md](./CHANGELOG.md).
+> Independent community project. Not affiliated with or endorsed by Google, Antigravity, or OpenAI. See [SECURITY.md](./docs/SECURITY.md) and [CHANGELOG.md](./docs/CHANGELOG.md).
 
 ---
 
@@ -207,9 +207,6 @@ Keeping `antigravity-codex` as a native plugin + shell/PowerShell runner means z
 ```text
 antigravity-codex/
 ├── README.md                                  # English documentation
-├── README.zh-CN.md                            # Chinese documentation
-├── SECURITY.md                                # Sandbox & security policy
-├── CHANGELOG.md                               # Release history
 ├── LICENSE                                    # MIT License
 ├── install.sh                                 # macOS / Linux installer (--dry-run / --uninstall)
 ├── install.ps1                                # Windows PowerShell installer (-DryRun / -Uninstall)
@@ -218,6 +215,10 @@ antigravity-codex/
 │   ├── workflow-preview.png                   # Workflow banner
 │   └── codex-picker-preview.png               # 1-turn picker UI preview
 ├── docs/
+│   ├── index.html                             # GitHub Pages landing page
+│   ├── README.zh-CN.md                        # Chinese documentation
+│   ├── SECURITY.md                            # Sandbox & security policy
+│   ├── CHANGELOG.md                           # Release history
 │   ├── INSTALL_WITH_ANTIGRAVITY.md            # Agent-native drag-and-drop install SOP
 │   └── SHARED_WORKSPACE.md                    # Bidirectional shared workspace guide
 ├── plugin/                                    # Clean plugin template (zero personal paths)
